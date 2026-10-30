@@ -14,7 +14,8 @@ import kotlin.math.sin
 
 /**
  * The chime, the wood knock and the spoken announcements.
- * Sounds are made in code (no sound files), the voice is the box's own text-to-speech.
+ * The knock is a recorded wood-block sound (res/raw/knock.wav), the chime is made in code,
+ * and the voice is the box's own text-to-speech.
  */
 object Announcer {
     private const val RATE = 44100
@@ -41,8 +42,8 @@ object Announcer {
         } catch (e: Exception) {
             tts = null
         }
-        knockTrack = makeTrack(knockPcm())
-        chimeTrack = makeTrack(chimePcm())
+        knockTrack = loadWav(ctx, R.raw.knock)?.let { (pcm, rate) -> makeTrack(pcm, rate) }
+        chimeTrack = makeTrack(chimePcm(), RATE)
     }
 
     private fun soundsOn() = app?.let { Prefs.sounds(it) } ?: true
@@ -83,7 +84,29 @@ object Announcer {
         } catch (e: Exception) {}
     }
 
-    private fun makeTrack(pcm: ShortArray): AudioTrack? = try {
+    /** Reads a mono 16-bit WAV from res/raw: the samples and their sample rate. */
+    private fun loadWav(ctx: Context, resId: Int): Pair<ShortArray, Int>? = try {
+        val b = ctx.resources.openRawResource(resId).use { it.readBytes() }
+        fun le32(i: Int) = (b[i].toInt() and 0xff) or ((b[i + 1].toInt() and 0xff) shl 8) or
+            ((b[i + 2].toInt() and 0xff) shl 16) or ((b[i + 3].toInt() and 0xff) shl 24)
+        val rate = le32(24)
+        var p = 12
+        var data = -1; var len = 0
+        while (p + 8 <= b.size) {
+            val id = String(b, p, 4, Charsets.US_ASCII)
+            val size = le32(p + 4)
+            if (id == "data") { data = p + 8; len = minOf(size, b.size - data); break }
+            p += 8 + size + (size and 1)
+        }
+        if (data < 0) null else {
+            val n = len / 2
+            Pair(ShortArray(n) { ((b[data + 2 * it].toInt() and 0xff) or (b[data + 2 * it + 1].toInt() shl 8)).toShort() }, rate)
+        }
+    } catch (e: Exception) {
+        null
+    }
+
+    private fun makeTrack(pcm: ShortArray, rate: Int): AudioTrack? = try {
         val t = AudioTrack.Builder()
             .setAudioAttributes(
                 AudioAttributes.Builder()
@@ -94,7 +117,7 @@ object Announcer {
             .setAudioFormat(
                 AudioFormat.Builder()
                     .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
-                    .setSampleRate(RATE)
+                    .setSampleRate(rate)
                     .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
                     .build()
             )
@@ -105,35 +128,6 @@ object Announcer {
         t
     } catch (e: Exception) {
         null
-    }
-
-    /** A block of wood hitting something: a short woody click plus a low thump. */
-    fun knockPcm(): ShortArray {
-        val n = (RATE * 0.22).toInt()
-        val out = FloatArray(n)
-        val rnd = java.util.Random(7)
-        // band-pass resonator around 950 Hz for the woody click
-        val f = 950.0; val q = 2.2
-        val w = 2 * PI * f / RATE
-        val alpha = sin(w) / (2 * q)
-        val b0 = alpha; val b2 = -alpha
-        val a0 = 1 + alpha; val a1 = -2 * kotlin.math.cos(w); val a2 = 1 - alpha
-        var x1 = 0.0; var x2 = 0.0; var y1 = 0.0; var y2 = 0.0
-        val clickLen = (RATE * 0.09).toInt()
-        var phase = 0.0
-        for (i in 0 until n) {
-            val t = i.toDouble() / RATE
-            val x = if (i < clickLen) (rnd.nextDouble() * 2 - 1) * Math.pow(1.0 - i.toDouble() / clickLen, 5.0) else 0.0
-            val y = (b0 * x + b2 * x2 - a1 * y1 - a2 * y2) / a0
-            x2 = x1; x1 = x; y2 = y1; y1 = y
-            // thump: 210 Hz falling to 105 Hz, fast decay
-            val freq = 210.0 * Math.pow(0.5, (t / 0.12).coerceAtMost(1.0))
-            phase += 2 * PI * freq / RATE
-            val attack = (t / 0.004).coerceAtMost(1.0)
-            val thump = sin(phase) * attack * exp(-t / 0.035)
-            out[i] = (y * 2.2 + thump * 0.9).toFloat()
-        }
-        return toPcm(out, 0.9f)
     }
 
     /** A mellow two-note chime (E then C) with soft edges. */
