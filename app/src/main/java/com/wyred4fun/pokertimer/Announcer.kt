@@ -14,7 +14,7 @@ import kotlin.math.sin
 
 /**
  * The chime, the wood knock and the spoken announcements.
- * The knock is a recorded wood-block sound (res/raw/knock.wav), the chime is made in code,
+ * The knock is one of the recorded sounds in res/raw (picked in Setup > Knock sound), the chime is made in code,
  * and the voice is the box's own text-to-speech.
  */
 object Announcer {
@@ -23,6 +23,7 @@ object Announcer {
     private var tts: TextToSpeech? = null
     private var ttsReady = false
     private var knockTrack: AudioTrack? = null
+    private var knockId: String? = null
     private var chimeTrack: AudioTrack? = null
     private val main = Handler(Looper.getMainLooper())
 
@@ -42,7 +43,7 @@ object Announcer {
         } catch (e: Exception) {
             tts = null
         }
-        knockTrack = loadWav(ctx, R.raw.knock)?.let { (pcm, rate) -> makeTrack(pcm, rate) }
+        useKnock(Prefs.knockSound(ctx))
         chimeTrack = makeTrack(chimePcm(), RATE)
     }
 
@@ -50,6 +51,40 @@ object Announcer {
     private fun voiceOn() = app?.let { Prefs.voice(it) } ?: true
 
     fun knock() { if (soundsOn()) play(knockTrack) }
+
+    /** Switch the countdown knock to another sound (from Sounds.ALL). */
+    fun useKnock(id: String) {
+        val ctx = app ?: return
+        val s = Sounds.byId(id)
+        if (s.id == knockId && knockTrack != null) return
+        val old = knockTrack
+        knockTrack = loadWav(ctx, s.res)?.let { (pcm, rate) -> makeTrack(pcm, rate) }
+        knockId = s.id
+        try { old?.release() } catch (e: Exception) {}
+    }
+
+    /** Pick a knock and play it the way the countdown will: one per second, even with sounds switched off. */
+    fun pickKnock(ctx: Context, id: String) {
+        Prefs.setKnockSound(ctx, id)
+        useKnock(id)
+        hushPreview()
+        // don't play over a real countdown that is happening right now
+        val e = MainActivity.live
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (e != null && e.running && e.next != null && e.secondsLeft(now) <= TimerEngine.KNOCKS + 1) return
+        for (i in 0 until TimerEngine.KNOCKS) later(i * 1000L) { play(knockTrack) }
+    }
+
+    /** Previews and Test sounds are tagged, so stopping them never cuts off the running timer. */
+    private val PREVIEW = Any()
+    private fun later(delayMs: Long, r: () -> Unit) {
+        main.postAtTime(Runnable { r() }, PREVIEW, android.os.SystemClock.uptimeMillis() + delayMs)
+    }
+
+    /** Stop a preview or Test sounds run (the timer's own announcements carry on). */
+    fun hushPreview() {
+        main.removeCallbacksAndMessages(PREVIEW)
+    }
     fun chime() { if (soundsOn()) play(chimeTrack) }
 
     fun say(text: String, delayMs: Long = 0) {
@@ -68,11 +103,11 @@ object Announcer {
 
     /** The full sequence, for the Test Sounds button. */
     fun demo() {
-        hush()
+        hushPreview()
         chime()
-        say("Attention players. Blinds will be going up in one minute.", 1500)
-        for (i in 0 until 5) main.postDelayed({ knock() }, 6000L + i * 1000L)
-        main.postDelayed({ say("Blinds are now 2 and 4.") }, 11400L)
+        later(1500) { say("Attention players. Blinds will be going up in one minute.") }
+        for (i in 0 until TimerEngine.KNOCKS) later(6000L + i * 1000L) { knock() }
+        later(6000L + TimerEngine.KNOCKS * 1000L + 150L) { say("Attention players. Blinds are now 2 and 4.") }
     }
 
     private fun play(t: AudioTrack?) {

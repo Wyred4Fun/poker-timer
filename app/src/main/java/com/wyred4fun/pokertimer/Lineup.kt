@@ -66,7 +66,13 @@ object Prefs {
     private const val PREFS = "poker_timer"
     fun sounds(ctx: Context) = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean("sounds", true)
     fun voice(ctx: Context) = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean("voice", true)
+    fun openAtStartup(ctx: Context) = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean("openAtStartup", false)
     fun testMode(ctx: Context) = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean("testMode", false)
+    fun knockSound(ctx: Context): String =
+        ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString("knockSound", Sounds.DEFAULT) ?: Sounds.DEFAULT
+    fun setKnockSound(ctx: Context, id: String) {
+        ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString("knockSound", id).apply()
+    }
     fun set(ctx: Context, key: String, value: Boolean) {
         ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(key, value).apply()
     }

@@ -105,7 +105,7 @@ class Ui(private val act: Activity) {
     val MATCH = LinearLayout.LayoutParams.MATCH_PARENT
 }
 
-enum class Icon { PLAY, PAUSE, BACK, SKIP, RESET, STOP, SLIDERS, PLUS, CROSS, CHECK, UPDOWN }
+enum class Icon { PLAY, PAUSE, BACK, SKIP, RESET, STOP, SLIDERS, PLUS, CROSS, CHECK, UPDOWN, DOWNLOAD }
 
 /** Simple line icons drawn in code, matching the design's stroke icons. */
 class IconDrawable(private val kind: Icon, color: Int) : Drawable() {
@@ -141,6 +141,11 @@ class IconDrawable(private val kind: Icon, color: Int) : Drawable() {
             }
             Icon.PLUS -> { c.drawLine(x(12f), y(5f), x(12f), y(19f), lineP); c.drawLine(x(5f), y(12f), x(19f), y(12f), lineP) }
             Icon.CROSS -> { c.drawLine(x(6f), y(6f), x(18f), y(18f), lineP); c.drawLine(x(18f), y(6f), x(6f), y(18f), lineP) }
+            Icon.DOWNLOAD -> {
+                c.drawLine(x(12f), y(3.5f), x(12f), y(15f), lineP)
+                p.moveTo(x(7f), y(10.5f)); p.lineTo(x(12f), y(15.5f)); p.lineTo(x(17f), y(10.5f)); c.drawPath(p, lineP)
+                c.drawLine(x(4.5f), y(20f), x(19.5f), y(20f), lineP)
+            }
             Icon.UPDOWN -> {
                 p.moveTo(x(12f), y(2.5f)); p.lineTo(x(18.5f), y(9.5f)); p.lineTo(x(5.5f), y(9.5f)); p.close()
                 p.moveTo(x(12f), y(21.5f)); p.lineTo(x(18.5f), y(14.5f)); p.lineTo(x(5.5f), y(14.5f)); p.close()

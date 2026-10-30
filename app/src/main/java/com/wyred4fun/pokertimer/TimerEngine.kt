@@ -9,7 +9,7 @@ class TimerEngine(levels: List<Level>, private val listener: Listener) {
     interface Listener {
         /** 1 minute left and another step follows. */
         fun onWarning(current: Level, next: Level)
-        /** 5, 4, 3, 2, 1 seconds left and another step follows. */
+        /** The last few seconds (3, 2, 1) when another step follows: one knock each. */
         fun onCountdown(secondsLeft: Int)
         /** The clock moved on to a new step by itself. quiet = caught up after being away, so no sounds. */
         fun onLevelChanged(now: Level, quiet: Boolean)
@@ -163,11 +163,13 @@ class TimerEngine(levels: List<Level>, private val listener: Listener) {
     private fun onSecond(s: Int) {
         val nx = next ?: return
         if (s == 60 && durationMs(idx) > 60_000L) listener.onWarning(current, nx)
-        if (s in 1..5) listener.onCountdown(s)
+        if (s in 1..KNOCKS) listener.onCountdown(s)
     }
 
     companion object {
         const val TEST_SECONDS = 75
+        /** How many knocks lead into the new blinds (one per second). */
+        const val KNOCKS = 3
         fun ceilSec(ms: Long): Int = (-Math.floorDiv(-ms, 1000L)).toInt()
     }
 }

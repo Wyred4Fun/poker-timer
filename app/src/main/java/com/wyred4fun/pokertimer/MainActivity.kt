@@ -115,7 +115,7 @@ class MainActivity : Activity(), TimerEngine.Listener {
         saveState()
         if (quiet) return
         flashUntil = SystemClock.elapsedRealtime() + 8000
-        Announcer.say(if (now.isBreak) "Break time. ${now.minutes} minutes." else "Blinds are now ${now.blindsSpoken}.", 350)
+        Announcer.say(if (now.isBreak) "Break time. ${now.minutes} minutes." else "Attention players. Blinds are now ${now.blindsSpoken}.", 150)
     }
 
     override fun onFinished(quiet: Boolean) {
@@ -243,8 +243,8 @@ class MainActivity : Activity(), TimerEngine.Listener {
         }
         set(timerText, "%d:%02d".format(s / 60, s % 60))
 
-        val counting = nx != null && s in 1..5
-        val warning = nx != null && s in 6..60 && engine.durationMs(engine.idx) > 60_000L
+        val counting = nx != null && s in 1..TimerEngine.KNOCKS
+        val warning = nx != null && s in (TimerEngine.KNOCKS + 1)..60 && engine.durationMs(engine.idx) > 60_000L
         val flash = now < flashUntil && !warning && !counting
         timerText.setTextColor(if (counting) C.ORANGE else if (warning) C.GOLD else C.CREAM)
 

@@ -1,7 +1,11 @@
 package com.wyred4fun.pokertimer
 
 import android.app.Activity
+import android.content.Intent
 import android.graphics.Color
+import android.net.Uri
+import android.os.Build
+import android.provider.Settings
 import android.os.Bundle
 import android.os.SystemClock
 import android.view.Gravity
@@ -27,6 +31,11 @@ class SetupActivity : Activity() {
     private var editing: TextView? = null
     private var restoreConfirmUntil = 0L
     private lateinit var restoreBtn: TextView
+    private lateinit var startupBtn: TextView
+    private lateinit var knockBtn: TextView
+    private lateinit var updateBtn: TextView
+    private var available: Updater.Release? = null
+    private lateinit var startupNote: TextView
 
     private enum class Field { SB, BB, MIN }
 
@@ -36,6 +45,7 @@ class SetupActivity : Activity() {
         Announcer.init(this)
         ui = Ui(this)
         levels.addAll(Lineup.load(this))
+        Updater.cleanUp(this)
         setContentView(build())
     }
 
@@ -200,8 +210,129 @@ class SetupActivity : Activity() {
         t.compoundDrawablePadding = ui.px(16)
     }
 
+    // ---------- open at startup ----------
+
+    /** Android 10 and later only let an app open itself at startup with "Display over other apps" allowed. */
+    private fun startupAllowed() = Build.VERSION.SDK_INT < 29 || Settings.canDrawOverlays(this)
+
+    private fun refreshStartup() {
+        val on = Prefs.openAtStartup(this)
+        toggleText(startupBtn, if (on) "Open at startup:  On" else "Open at startup:  Off", on)
+        if (on && !startupAllowed()) {
+            startupNote.text = if (hasOverlayScreen())
+                "Allow \u201CDisplay over other apps\u201D for Poker Timer: Settings \u203A Apps \u203A Special app access"
+            else "This box doesn't offer \u201CDisplay over other apps\u201D, so it can't open the timer at startup"
+            startupNote.setTextColor(C.ORANGE)
+        } else {
+            startupNote.text = "Opens the timer when the box starts up"
+            startupNote.setTextColor(C.MUTED)
+        }
+    }
+
+    /** True when this box has a screen for "Display over other apps" (some Google TV boxes don't). */
+    private fun hasOverlayScreen(): Boolean =
+        listOf(
+            Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")),
+            Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION)
+        ).any { it.resolveActivity(packageManager) != null }
+
+    private fun askStartupPermission() {
+        val tries = listOf(
+            Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")),
+            Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION)
+        )
+        for (i in tries) {
+            if (i.resolveActivity(packageManager) == null) continue
+            try { startActivity(i); return } catch (e: Exception) {}
+        }
+        Toast.makeText(this, "This box has no \u201CDisplay over other apps\u201D setting, so it can't open the timer by itself at startup", Toast.LENGTH_LONG).show()
+    }
+
+    // ---------- update app ----------
+
+    /** The button's own label shows where things stand; problems also pop up as a message. */
+    private fun setUpdate(button: String, note: String, noteColor: Int = C.MUTED) {
+        updateBtn.text = button
+        if (noteColor == C.ORANGE) Toast.makeText(this, note, Toast.LENGTH_LONG).show()
+    }
+
+    /** Opens Android's "Install unknown apps" switch for Poker Timer. */
+    private fun askInstallPermission() {
+        val tries = listOf(
+            Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName")),
+            Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES)
+        )
+        Toast.makeText(this, "Allow Poker Timer to install apps, then press Update again", Toast.LENGTH_LONG).show()
+        for (i in tries) {
+            if (i.resolveActivity(packageManager) == null) continue
+            try { startActivity(i); return } catch (e: Exception) {}
+        }
+        Toast.makeText(this, "Open Settings \u203A Apps \u203A Special app access \u203A Install unknown apps, and allow Poker Timer", Toast.LENGTH_LONG).show()
+    }
+
+    private fun updatePressed() {
+        val rel = available
+        if (rel != null && !Updater.canInstall(this)) { askInstallPermission(); return }
+        if (!Updater.busy.compareAndSet(false, true)) {
+            Toast.makeText(this, "An update is already downloading", Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (rel == null) {
+            setUpdate("Checking\u2026", "Looking for a newer version on GitHub")
+            Thread {
+                val result = try { Result.success(Updater.newest()) } catch (e: Exception) { Result.failure(e) }
+                Updater.busy.set(false)
+                runOnUiThread {
+                    if (isFinishing || isDestroyed) return@runOnUiThread
+                    val mine = Updater.currentNumber(this)
+                    result.fold({ r ->
+                        if (r != null && r.number > mine) {
+                            available = r
+                            setUpdate("Update to 1.0.${r.number}", "You have ${Updater.currentName(this)}. Press to download and install.", C.GOLD)
+                        } else {
+                            setUpdate("Up to date  \u00B7  ${Updater.currentName(this)}", "")
+                        }
+                    }, { e ->
+                        setUpdate("Check for update", "Couldn't reach GitHub (${e.message ?: "no connection"})", C.ORANGE)
+                    })
+                }
+            }.start()
+        } else {
+            setUpdate("Downloading 0%", "Getting Poker Timer 1.0.${rel.number}")
+            Thread {
+                val result = try {
+                    val f = Updater.download(this, rel) { p -> runOnUiThread { if (!isDestroyed) updateBtn.text = "Downloading $p%" } }
+                    runOnUiThread { if (!isDestroyed) setUpdate("Installing\u2026", "Press Install on the next screen") }
+                    Updater.install(this, f)
+                    Result.success(Unit)
+                } catch (e: Exception) { Result.failure(e) }
+                Updater.busy.set(false)
+                runOnUiThread {
+                    if (isFinishing || isDestroyed) return@runOnUiThread
+                    // installer is open (or it failed): if he cancels, the button is ready to try again
+                    result.onSuccess { setUpdate("Update to 1.0.${rel.number}", "") }
+                    result.onFailure { e ->
+                        setUpdate("Update to 1.0.${rel.number}", "Update failed (${e.message ?: "unknown"}). Press to try again.", C.ORANGE)
+                    }
+                }
+            }.start()
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (::startupBtn.isInitialized) refreshStartup()
+        if (::knockBtn.isInitialized) refreshKnock()
+    }
+
+    private fun refreshKnock() {
+        val i = Sounds.ALL.indexOf(Sounds.byId(Prefs.knockSound(this)))
+        knockBtn.text = "Knock:  ${i + 1}. ${Sounds.ALL[i].name}"
+        ui.icon(knockBtn, Icon.SLIDERS, C.CREAM, 28f)
+    }
+
     private fun switchRow(label: String, key: String, read: () -> Boolean): TextView =
-        ui.button(label, height = 76f, textSize = 28f).apply {
+        ui.button(label, height = 68f, textSize = 28f).apply {
             gravity = Gravity.CENTER_VERTICAL
             setPadding(ui.px(26), 0, ui.px(26), 0)
             background = ui.pillBg(C.FELT, C.EDGE, C.PANEL_HI, C.GOLD, 20f)
@@ -238,7 +369,7 @@ class SetupActivity : Activity() {
 
     override fun onPause() {
         super.onPause()
-        Announcer.hush()
+        Announcer.hushPreview()
     }
 
     // ---------- layout ----------
@@ -259,7 +390,13 @@ class SetupActivity : Activity() {
             setPadding(ui.px(44), 0, ui.px(44), 0)
             setOnClickListener { finish() }
         }
-        header.addView(done)
+        updateBtn = ui.button("Update app  \u00B7  ${Updater.currentName(this)}", height = 84f, textSize = 28f).apply {
+            ui.icon(this, Icon.DOWNLOAD, C.CREAM, 28f)
+            setPadding(ui.px(36), 0, ui.px(36), 0)
+            setOnClickListener { updatePressed() }
+        }
+        header.addView(updateBtn)
+        header.addView(done, (done.layoutParams as LinearLayout.LayoutParams).apply { leftMargin = ui.px(20) })
         body.addView(header, ui.lp(ui.MATCH, ui.WRAP))
 
         body.addView(ui.text(26f, C.MUTED, ui.bold).apply {
@@ -294,35 +431,63 @@ class SetupActivity : Activity() {
         adds.addView(addBreakBtn, (addBreakBtn.layoutParams as LinearLayout.LayoutParams).apply { leftMargin = ui.px(16) })
         left.addView(adds, ui.lp(ui.MATCH, ui.WRAP).apply { topMargin = ui.px(16) })
 
-        // right: switches
-        val right = ui.col().apply {
+        // right: switches (scrolls if they don't all fit)
+        val rightPanel = ui.col().apply {
             background = ui.round(C.PANEL, 32f)
-            setPadding(ui.px(40), ui.px(36), ui.px(40), ui.px(36))
+            setPadding(ui.px(40), ui.px(16), ui.px(40), ui.px(16))
         }
-        main.addView(right, ui.lp(ui.px(600), ui.MATCH).apply { leftMargin = ui.px(56) })
+        main.addView(rightPanel, ui.lp(ui.px(600), ui.MATCH).apply { leftMargin = ui.px(56) })
+        val rightScroll = ScrollView(this).apply { isVerticalScrollBarEnabled = false }
+        val right = ui.col().apply { setPadding(0, ui.px(20), 0, ui.px(20)) }
+        rightScroll.addView(right)
+        rightPanel.addView(rightScroll, ui.lp(ui.MATCH, ui.MATCH))
         right.addView(ui.text(24f, C.MUTED, ui.bold, 0.16f).apply { text = "SOUND & VOICE" })
         val gap = { v: View, top: Int -> right.addView(v, ui.lp(ui.MATCH, (v.layoutParams as? LinearLayout.LayoutParams)?.height ?: ui.WRAP).apply { topMargin = ui.px(top) }) }
         gap(switchRow("Chime & knocks", "sounds") { Prefs.sounds(this) }, 20)
         gap(switchRow("Voice", "voice") { Prefs.voice(this) }, 14)
-        gap(ui.button("Test sounds", height = 72f).apply {
+        knockBtn = ui.button("Knock sound", height = 68f, textSize = 28f).apply {
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(ui.px(26), 0, ui.px(26), 0)
+            background = ui.pillBg(C.FELT, C.EDGE, C.PANEL_HI, C.GOLD, 20f)
+            ellipsize = android.text.TextUtils.TruncateAt.END
+            setOnClickListener { startActivity(Intent(this@SetupActivity, SoundsActivity::class.java)) }
+        }
+        gap(knockBtn, 14)
+        refreshKnock()
+        gap(ui.button("Test sounds", height = 64f).apply {
             ui.icon(this, Icon.PLAY, C.CREAM, 26f)
             setOnClickListener { Announcer.demo() }
         }, 14)
         right.addView(ui.text(22f, C.MUTED, ui.bold).apply {
-            text = "Plays the 1-minute warning, then the 5 knocks"
+            text = "Plays the 1-minute warning, then the 3 knocks"
             setSingleLine(false)
         }, ui.lp(ui.MATCH, ui.WRAP).apply { topMargin = ui.px(10) })
-        right.addView(ui.text(24f, C.MUTED, ui.bold, 0.16f).apply { text = "OTHER" }, ui.lp(ui.WRAP, ui.WRAP).apply { topMargin = ui.px(40) })
-        gap(switchRow("Test mode", "testMode") { Prefs.testMode(this) }, 20)
+        right.addView(ui.text(24f, C.MUTED, ui.bold, 0.16f).apply { text = "OTHER" }, ui.lp(ui.WRAP, ui.WRAP).apply { topMargin = ui.px(30) })
+        startupBtn = ui.button("Open at startup", height = 68f, textSize = 28f).apply {
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(ui.px(26), 0, ui.px(26), 0)
+            background = ui.pillBg(C.FELT, C.EDGE, C.PANEL_HI, C.GOLD, 20f)
+            setOnClickListener {
+                val nv = !Prefs.openAtStartup(this@SetupActivity)
+                Prefs.set(this@SetupActivity, "openAtStartup", nv)
+                refreshStartup()
+                if (nv && !startupAllowed()) askStartupPermission()
+            }
+        }
+        gap(startupBtn, 16)
+        startupNote = ui.text(22f, C.MUTED, ui.bold).apply { setSingleLine(false) }
+        right.addView(startupNote, ui.lp(ui.MATCH, ui.WRAP).apply { topMargin = ui.px(8) })
+        refreshStartup()
+        gap(switchRow("Test mode", "testMode") { Prefs.testMode(this) }, 16)
         right.addView(ui.text(22f, C.MUTED, ui.bold).apply {
             text = "Every level lasts 75 seconds, to try it out"
             setSingleLine(false)
-        }, ui.lp(ui.MATCH, ui.WRAP).apply { topMargin = ui.px(10) })
-        restoreBtn = ui.button("Restore my lineup", height = 72f).apply {
+        }, ui.lp(ui.MATCH, ui.WRAP).apply { topMargin = ui.px(8) })
+        restoreBtn = ui.button("Restore my lineup", height = 64f).apply {
             ui.icon(this, Icon.RESET, C.CREAM, 26f)
             setOnClickListener { restoreDefault() }
         }
-        gap(restoreBtn, 28)
+        gap(restoreBtn, 18)
 
         rebuildList()
         root.post { done.requestFocus() }
