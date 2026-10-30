@@ -7,6 +7,8 @@ package com.wyred4fun.pokertimer
 class TimerEngine(levels: List<Level>, private val listener: Listener) {
 
     interface Listener {
+        /** 3 minutes left in a break. */
+        fun onBreakEnding(minutesLeft: Int) {}
         /** 1 minute left and another step follows. */
         fun onWarning(current: Level, next: Level)
         /** The last few seconds (3, 2, 1) when another step follows: one knock each. */
@@ -46,6 +48,9 @@ class TimerEngine(levels: List<Level>, private val listener: Listener) {
         val ms = if (running) endAt - now else remainingMs
         return ceilSec(ms).coerceAtLeast(0)
     }
+
+    /** When the running level ends (elapsedRealtime ms), or 0 when the clock is stopped. */
+    val endTime: Long get() = if (running) endAt else 0L
 
     fun msLeft(now: Long): Long = (if (running) endAt - now else remainingMs).coerceAtLeast(0)
 
@@ -168,6 +173,7 @@ class TimerEngine(levels: List<Level>, private val listener: Listener) {
     private fun onSecond(s: Int) {
         val nx = next ?: return
         if (s == warnAt && durationMs(idx) > warnAt * 1000L) listener.onWarning(current, nx)
+        if (current.isBreak && s == BREAK_WARN && durationMs(idx) > BREAK_WARN * 1000L) listener.onBreakEnding(BREAK_WARN / 60)
         if (s in 1..knocks) listener.onCountdown(s)
     }
 
@@ -175,6 +181,8 @@ class TimerEngine(levels: List<Level>, private val listener: Listener) {
         const val TEST_SECONDS = 75
         /** The last 5 seconds count down with the notification sound. */
         const val COUNTDOWN = 5
+        /** "The break is over in 3 minutes" comes at 3:00 left in a break. */
+        const val BREAK_WARN = 180
 
         fun ceilSec(ms: Long): Int = (-Math.floorDiv(-ms, 1000L)).toInt()
     }

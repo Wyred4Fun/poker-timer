@@ -60,7 +60,10 @@ class MainActivity : Activity(), TimerEngine.Listener {
             engine.update(SystemClock.elapsedRealtime())
             snapBackIfIdle()
             render()
-            handler.postDelayed(this, 100)
+            val now = SystemClock.elapsedRealtime()
+            syncCountdown(now)
+            // near the end, check every 20 ms so the numbers change right on time
+            handler.postDelayed(this, if (engine.running && engine.msLeft(now) < 8000) 20 else 100)
         }
     }
 
@@ -106,6 +109,7 @@ class MainActivity : Activity(), TimerEngine.Listener {
 
     override fun onDestroy() {
         super.onDestroy()
+        Countdown.cancel()
         handler.removeCallbacks(ticker)
         saveState()
         if (live === engine) live = null
@@ -131,8 +135,28 @@ class MainActivity : Activity(), TimerEngine.Listener {
         if (Announcer.warningWords) Announcer.say(msg, 1500)
     }
 
+    override fun onBreakEnding(minutesLeft: Int) {
+        Announcer.chime()
+        Announcer.say("Attention players. The break is over in $minutesLeft minutes.", 1500)
+    }
+
     override fun onCountdown(secondsLeft: Int) {
-        Announcer.knock()
+        // the sound itself is the timed stream started by syncCountdown()
+    }
+
+    /**
+     * Keep the countdown stream aimed at the running level's end: start it ~2 s before "5",
+     * and stop it if the clock is paused, reset, skipped or changed.
+     */
+    private fun syncCountdown(now: Long) {
+        val left = engine.msLeft(now)
+        val want = if (engine.running && engine.next != null && Announcer.soundsOn() &&
+            left in 1..(TimerEngine.COUNTDOWN * 1000L + 2000L)) engine.endTime else 0L
+        if (want == Countdown.aimedAt) return
+        if (want == 0L && Countdown.isPreview) return   // let Test sounds / a preview finish
+        Countdown.cancel()
+        val wav = Announcer.knockPcm
+        if (want != 0L && wav != null && left > 300) Countdown.start(want, minOf(engine.knocks, ((left - 1) / 1000).toInt()), wav.first, wav.second)
     }
 
     override fun onLevelChanged(now: Level, quiet: Boolean) {
@@ -306,7 +330,10 @@ class MainActivity : Activity(), TimerEngine.Listener {
 
         val counting = nx != null && s in 1..engine.knocks
         val warning = nx != null && s in (engine.knocks + 1)..engine.warnAt && engine.durationMs(engine.idx) > engine.warnAt * 1000L
-        val flash = now < flashUntil && !warning && !counting
+        // the last 3 minutes of a break (before the 1-minute banner takes over)
+        val breakSoon = cur.isBreak && nx != null && s in (engine.warnAt + 1)..TimerEngine.BREAK_WARN &&
+            engine.durationMs(engine.idx) > TimerEngine.BREAK_WARN * 1000L
+        val flash = now < flashUntil && !warning && !counting && !breakSoon
         timerText.setTextColor(if (counting) C.ORANGE else if (warning) C.GOLD else C.CREAM)
 
         when {
@@ -323,6 +350,13 @@ class MainActivity : Activity(), TimerEngine.Listener {
                     nx!!.isBreak -> "Attention players — break starts in 1 minute"
                     else -> "Attention players — blinds go up to ${nx.blindsText} in 1 minute"
                 })
+                bannerText.typeface = ui.black; bannerText.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, 44f * ui.scale)
+                bannerNum.visibility = View.GONE
+            }
+            breakSoon -> {
+                showBanner(C.GOLD, C.GOLD_INK)
+                val mins = (s + 59) / 60
+                set(bannerText, "Attention players — the break is over in $mins minutes")
                 bannerText.typeface = ui.black; bannerText.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, 44f * ui.scale)
                 bannerNum.visibility = View.GONE
             }

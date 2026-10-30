@@ -24,6 +24,9 @@ object Announcer {
     private var ttsReady = false
     private var knockTrack: AudioTrack? = null
     private var knockId: String? = null
+    /** The chosen sound's samples and rate, for the timed countdown stream. */
+    var knockPcm: Pair<ShortArray, Int>? = null
+        private set
     /** How many times the chosen notification sound plays before the blinds go up. */
     val knockHits: Int get() = TimerEngine.COUNTDOWN
     private var chimeTrack: AudioTrack? = null
@@ -49,7 +52,7 @@ object Announcer {
         chimeTrack = makeTrack(chimePcm(), RATE)
     }
 
-    private fun soundsOn() = app?.let { Prefs.sounds(it) } ?: true
+    fun soundsOn() = app?.let { Prefs.sounds(it) } ?: true
     private fun voiceMode() = app?.let { Prefs.voiceMode(it) } ?: Prefs.VOICE_BLINDS
     /** Is the spoken 1-minute warning wanted? */
     val warningWords: Boolean get() = voiceMode() == Prefs.VOICE_ALL
@@ -62,7 +65,9 @@ object Announcer {
         val s = Sounds.byId(id)
         if (s.id == knockId && knockTrack != null) return
         val old = knockTrack
-        knockTrack = loadWav(ctx, s.res)?.let { (pcm, rate) -> makeTrack(pcm, rate) }
+        val wav = loadWav(ctx, s.res)
+        knockPcm = wav
+        knockTrack = wav?.let { (pcm, rate) -> makeTrack(pcm, rate) }
         knockId = s.id
         try { old?.release() } catch (e: Exception) {}
     }
@@ -75,8 +80,9 @@ object Announcer {
         // don't play over a real countdown that is happening right now
         val e = MainActivity.live
         val now = android.os.SystemClock.elapsedRealtime()
-        if (e != null && e.running && e.next != null && e.secondsLeft(now) <= knockHits + e.knocks + 1) return
-        for (i in 0 until knockHits) later(i * 1000L) { play(knockTrack) }
+        if (e != null && e.running && e.next != null && e.secondsLeft(now) <= knockHits + e.knocks + 3) return
+        // same timed stream as the real countdown: first hit about 0.6 s after OK
+        knockPcm?.let { (pcm, rate) -> Countdown.start(now + 600L + knockHits * 1000L, knockHits, pcm, rate, preview = true) }
     }
 
     /** Previews and Test sounds are tagged, so stopping them never cuts off the running timer. */
@@ -88,6 +94,7 @@ object Announcer {
     /** Stop a preview or Test sounds run (the timer's own announcements carry on). */
     fun hushPreview() {
         main.removeCallbacksAndMessages(PREVIEW)
+        if (Countdown.isPreview) Countdown.cancel()
     }
     fun chime() { if (soundsOn()) play(chimeTrack) }
 
@@ -111,7 +118,9 @@ object Announcer {
         chime()
         val gap = if (warningWords) 6000L else 3000L
         if (warningWords) later(1500) { say("Attention players. Blinds will be going up in one minute.") }
-        for (i in 0 until knockHits) later(gap + i * 1000L) { knock() }
+        knockPcm?.let { (pcm, rate) ->
+            Countdown.start(android.os.SystemClock.elapsedRealtime() + gap + knockHits * 1000L, knockHits, pcm, rate, preview = true)
+        }
         later(gap + knockHits * 1000L + 150L) { say("Attention players. The blinds have now changed to 2 and 4.") }
     }
 

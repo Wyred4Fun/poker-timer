@@ -12,6 +12,7 @@ class TimerEngineTest {
         override fun onWarning(current: Level, next: Level) { log.add("warn ${next.blindsText}${if (next.isBreak) " break" else ""}") }
         override fun onCountdown(secondsLeft: Int) { log.add("knock $secondsLeft") }
         override fun onLevelChanged(now: Level, quiet: Boolean) { log.add("now ${if (now.isBreak) "break" else now.blindsText}${if (quiet) " quiet" else ""}") }
+        override fun onBreakEnding(minutesLeft: Int) { log.add("break over in $minutesLeft") }
         override fun onFinished(quiet: Boolean) { log.add("finished${if (quiet) " quiet" else ""}") }
     }
 
@@ -58,7 +59,7 @@ class TimerEngineTest {
         run(e, 0, 20 * 60_000L + 15 * 60_000L + 500)
         assertEquals(
             listOf("warn 0 – 0 break", "knock 5", "knock 4", "knock 3", "knock 2", "knock 1", "now break",
-                "warn 5 – 10", "knock 5", "knock 4", "knock 3", "knock 2", "knock 1", "now 5 – 10"),
+                "break over in 3", "warn 5 – 10", "knock 5", "knock 4", "knock 3", "knock 2", "knock 1", "now 5 – 10"),
             r.log
         )
     }
@@ -225,5 +226,22 @@ class TimerEngineTest {
         val l = Lineup.decode("3,5,20;B,15;10,25,15")!!
         assertEquals(Level(3, 6, 20), l[0])
         assertEquals(Level(10, 20, 15), l[2])
+    }
+
+    @Test fun countdownHitsLandOnTheirFrames() {
+        val rate = 44100
+        // frame 1000 will be heard at t = 2.000 s; a hit wanted at t = 2.5 s goes 0.5 s later
+        assertEquals(1000L + 22050L, Countdown.Plan.hitFrame(2_500_000_000L, 1000L, 2_000_000_000L, rate))
+        // a hit already due goes on the very next frame, never in the past
+        assertEquals(1000L, Countdown.Plan.hitFrame(1_900_000_000L, 1000L, 2_000_000_000L, rate))
+        // 5 hits one second apart are exactly 44100 frames apart
+        val f = (0 until 5).map { Countdown.Plan.hitFrame(3_000_000_000L + it * 1_000_000_000L, 0L, 1_000_000_000L, rate) }
+        assertEquals(listOf(88200L, 132300L, 176400L, 220500L, 264600L), f)
+        // mixing places the sound exactly, across chunk edges
+        val pcm = ShortArray(10) { (it + 1).toShort() }
+        val a = ShortArray(441); Countdown.Plan.mix(a, 0L, 436L, pcm)
+        assertEquals(listOf<Short>(1, 2, 3, 4, 5), a.takeLast(5))
+        val b = ShortArray(441); Countdown.Plan.mix(b, 441L, 436L, pcm)
+        assertEquals(listOf<Short>(6, 7, 8, 9, 10, 0), b.take(6))
     }
 }
