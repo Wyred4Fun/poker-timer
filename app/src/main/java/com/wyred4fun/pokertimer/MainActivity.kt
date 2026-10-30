@@ -29,6 +29,10 @@ class MainActivity : Activity(), TimerEngine.Listener {
     private lateinit var topLabel: TextView
     private lateinit var levelLabel: TextView
     private lateinit var nextText: TextView
+    private lateinit var clockText: TextView
+    private lateinit var startedText: TextView
+    /** Wall-clock time the night's first Start was pressed (0 = not started yet). */
+    private var startedAt = 0L
     private lateinit var centerLabel: TextView
     private lateinit var bigText: TextView
     private lateinit var timerText: TextView
@@ -69,6 +73,7 @@ class MainActivity : Activity(), TimerEngine.Listener {
         useChips = Prefs.chips(this)
         ui = Ui(this)
         engine = TimerEngine(Lineup.load(this), this)
+        engine.knocks = Announcer.knockHits
         live = engine
         engine.testMode = Prefs.testMode(this)
         restoreState()
@@ -118,13 +123,14 @@ class MainActivity : Activity(), TimerEngine.Listener {
 
     override fun onWarning(current: Level, next: Level) {
         Announcer.chime()
-        val inTime = if (engine.testMode) "in twenty seconds" else "in one minute"
+        val inTime = "in one minute"
         val msg = when {
             current.isBreak -> "Attention players. The break ends $inTime. Please head back to the table."
             next.isBreak -> "Attention players. Break starts $inTime."
             else -> "Attention players. Blinds will be going up $inTime."
         }
-        Announcer.say(msg, 1500)
+        // the chime always; the words only if Setup > Voice includes the 1-minute warning
+        if (Announcer.warningWords) Announcer.say(msg, 1500)
     }
 
     override fun onCountdown(secondsLeft: Int) {
@@ -135,7 +141,7 @@ class MainActivity : Activity(), TimerEngine.Listener {
         saveState()
         if (quiet) return
         flashUntil = SystemClock.elapsedRealtime() + 8000
-        Announcer.say(if (now.isBreak) "Break time. ${now.minutes} minutes." else "Attention players. Blinds are now ${now.blindsSpoken}.", 150)
+        Announcer.say(if (now.isBreak) "Attention players. Break time. ${now.minutes} minutes." else "Attention players. Blinds have gone up to ${now.blindsSpoken}.", 150)
     }
 
     override fun onFinished(quiet: Boolean) {
@@ -148,10 +154,13 @@ class MainActivity : Activity(), TimerEngine.Listener {
     private fun toggle() {
         val now = SystemClock.elapsedRealtime()
         if (engine.finished) {
-            Toast.makeText(this, "The final level is over. Press Stop twice to start a new night.", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "The final level is over. Press Reset tournament twice to start a new night.", Toast.LENGTH_LONG).show()
             return
         }
-        if (engine.running) engine.pause(now) else engine.start(now)
+        if (engine.running) engine.pause(now) else {
+            engine.start(now)
+            if (startedAt == 0L) startedAt = System.currentTimeMillis()
+        }
         saveState()
         render()
     }
@@ -196,6 +205,7 @@ class MainActivity : Activity(), TimerEngine.Listener {
         confirmStopUntil = 0
         Announcer.hush()
         engine.stopAll()
+        startedAt = 0L
         flashUntil = 0
         saveState()
         render()
@@ -243,11 +253,13 @@ class MainActivity : Activity(), TimerEngine.Listener {
             .putBoolean("st_running", engine.running)
             .putBoolean("st_finished", engine.finished)
             .putLong("st_wall", System.currentTimeMillis())
+            .putLong("st_started", startedAt)
             .apply()
     }
 
     private fun restoreState() {
         val p = getSharedPreferences("poker_timer", Context.MODE_PRIVATE)
+        startedAt = p.getLong("st_started", 0L)
         if (!p.contains("st_idx")) return
         val since = System.currentTimeMillis() - p.getLong("st_wall", System.currentTimeMillis())
         engine.restore(
@@ -291,6 +303,8 @@ class MainActivity : Activity(), TimerEngine.Listener {
         chipsRow.visibility = if (chips) View.VISIBLE else View.GONE
         if (chips) { sbChip.value = cur.sb.toString(); bbChip.value = cur.bb.toString() }
         set(timerText, "%d:%02d".format(s / 60, s % 60))
+        set(clockText, timeOfDay(System.currentTimeMillis()))
+        set(startedText, if (startedAt > 0) "STARTED " + timeOfDay(startedAt) else "")
 
         val counting = nx != null && s in 1..engine.knocks
         val warning = nx != null && s in (engine.knocks + 1)..engine.warnAt && engine.durationMs(engine.idx) > engine.warnAt * 1000L
@@ -307,9 +321,9 @@ class MainActivity : Activity(), TimerEngine.Listener {
             warning -> {
                 showBanner(C.GOLD, C.GOLD_INK)
                 set(bannerText, when {
-                    cur.isBreak -> "Break ends in ${if (engine.testMode) "20 seconds" else "1 minute"} — back to the table"
-                    nx!!.isBreak -> "Attention players — break starts in ${if (engine.testMode) "20 seconds" else "1 minute"}"
-                    else -> "Attention players — blinds go up to ${nx.blindsText} in ${if (engine.testMode) "20 seconds" else "1 minute"}"
+                    cur.isBreak -> "Break ends in 1 minute — back to the table"
+                    nx!!.isBreak -> "Attention players — break starts in 1 minute"
+                    else -> "Attention players — blinds go up to ${nx.blindsText} in 1 minute"
                 })
                 bannerText.typeface = ui.black; bannerText.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, 44f * ui.scale)
                 bannerNum.visibility = View.GONE
@@ -333,7 +347,7 @@ class MainActivity : Activity(), TimerEngine.Listener {
         set(playBtn, if (engine.running) "Pause" else "Start")
         if (playBtn.tag != engine.running) {
             playBtn.tag = engine.running
-            ui.icon(playBtn, if (engine.running) Icon.PAUSE else Icon.PLAY, C.GOLD_INK)
+            ui.icon(playBtn, if (engine.running) Icon.PAUSE else Icon.PLAY, C.CREAM, 34f)
         }
         val confirming = now < confirmStopUntil
         set(resetAllBtn, if (confirming) "Press again to reset" else "Reset tournament")
@@ -353,6 +367,12 @@ class MainActivity : Activity(), TimerEngine.Listener {
         banner.visibility = View.VISIBLE
     }
 
+    /** "11:43 PM", or "23:43" if the box is set to a 24-hour clock. */
+    private fun timeOfDay(ms: Long): String {
+        val f = if (android.text.format.DateFormat.is24HourFormat(this)) "H:mm" else "h:mm a"
+        return java.text.SimpleDateFormat(f, java.util.Locale.US).format(java.util.Date(ms)).uppercase()
+    }
+
     private fun set(t: TextView, s: String) { if (t.text.toString() != s) t.text = s }
 
     private fun build(): View {
@@ -370,10 +390,11 @@ class MainActivity : Activity(), TimerEngine.Listener {
         topLabel = ui.text(26f, C.MUTED, ui.bold, 0.24f)
         levelLabel = ui.text(72f, C.GOLD, ui.bebas, 0.04f)
         left.addView(topLabel, ui.lp(ui.WRAP, ui.WRAP)); left.addView(levelLabel, ui.lp(ui.WRAP, ui.WRAP).apply { topMargin = ui.px(6) })
+        // top right: the time of day, so everyone knows what time it is
         val right = ui.col().apply { gravity = Gravity.END }
-        val upNext = ui.text(26f, C.MUTED, ui.bold, 0.24f).apply { text = "UP NEXT" }
-        nextText = ui.text(72f, C.CREAM, ui.bebas, 0.04f)
-        right.addView(upNext, ui.lp(ui.WRAP, ui.WRAP)); right.addView(nextText, ui.lp(ui.WRAP, ui.WRAP).apply { topMargin = ui.px(6) })
+        val timeLabel = ui.text(26f, C.MUTED, ui.bold, 0.24f).apply { text = "TIME" }
+        clockText = ui.text(72f, C.CREAM, ui.bebas, 0.04f)
+        right.addView(timeLabel, ui.lp(ui.WRAP, ui.WRAP)); right.addView(clockText, ui.lp(ui.WRAP, ui.WRAP).apply { topMargin = ui.px(6) })
         header.addView(left, ui.lp(0, ui.WRAP, 1f))
         header.addView(right, ui.lp(ui.WRAP, ui.WRAP))
         body.addView(header, ui.lp(ui.MATCH, ui.WRAP))
@@ -381,21 +402,24 @@ class MainActivity : Activity(), TimerEngine.Listener {
         // center: blinds and clock
         val center = ui.col().apply { gravity = Gravity.CENTER }
         centerLabel = ui.text(34f, C.MUTED, ui.bold, 0.3f)
-        bigText = ui.text(300f, C.CREAM, ui.bebas, 0.02f)
+        bigText = ui.text(250f, C.CREAM, ui.bebas, 0.02f)
         timerText = ui.text(176f, C.CREAM, ui.bebas, 0.06f)
         center.addView(centerLabel, ui.lp(ui.WRAP, ui.WRAP))
         center.addView(bigText, ui.lp(ui.WRAP, ui.WRAP).apply { topMargin = ui.px(4) })
         chipsRow = ui.row().apply { gravity = Gravity.CENTER; visibility = View.GONE }
         fun chipCol(label: String, chip: ChipView): LinearLayout = ui.col().apply {
             gravity = Gravity.CENTER_HORIZONTAL
-            addView(chip, ui.lp(ui.px(320), ui.px(320)))
+            addView(chip, ui.lp(ui.px(270), ui.px(270)))
             addView(ui.text(24f, C.MUTED, ui.bold, 0.24f).apply { text = label }, ui.lp(ui.WRAP, ui.WRAP).apply { topMargin = ui.px(8) })
         }
         sbChip = ChipView(this, ui); bbChip = ChipView(this, ui)
         chipsRow.addView(chipCol("SMALL", sbChip))
         chipsRow.addView(chipCol("BIG", bbChip), ui.lp(ui.WRAP, ui.WRAP).apply { leftMargin = ui.px(70) })
-        center.addView(chipsRow, ui.lp(ui.WRAP, ui.WRAP).apply { topMargin = ui.px(10); bottomMargin = ui.px(44) })
+        center.addView(chipsRow, ui.lp(ui.WRAP, ui.WRAP).apply { topMargin = ui.px(6); bottomMargin = ui.px(40) })
         center.addView(timerText, ui.lp(ui.WRAP, ui.WRAP).apply { topMargin = ui.px(-34) })
+        startedText = ui.text(26f, C.MUTED, ui.bold, 0.08f)
+        // tucked into the empty space under the clock digits
+        center.addView(startedText, ui.lp(ui.WRAP, ui.WRAP).apply { topMargin = ui.px(-30) })
         body.addView(center, ui.lp(ui.MATCH, 0, 1f))
 
         // banner (warning / countdown / blinds are now)
@@ -411,13 +435,21 @@ class MainActivity : Activity(), TimerEngine.Listener {
         body.addView(banner, ui.lp(ui.MATCH, ui.px(104)).apply { topMargin = ui.px(24) })
 
         // progress bar
+        // progress bar, with "Up next" at the right end, just above Setup
+        val barRow = ui.row().apply { gravity = Gravity.CENTER_VERTICAL }
         progress = ProgressBarView(this, ui)
-        body.addView(progress, ui.lp(ui.MATCH, ui.px(16)).apply { topMargin = ui.px(24) })
+        barRow.addView(progress, ui.lp(0, ui.px(16), 1f))
+        val upNext = ui.text(26f, C.MUTED, ui.bold, 0.24f).apply { text = "UP NEXT" }
+        nextText = ui.text(52f, C.CREAM, ui.bebas, 0.04f)
+        barRow.addView(upNext, ui.lp(ui.WRAP, ui.WRAP).apply { leftMargin = ui.px(36) })
+        barRow.addView(nextText, ui.lp(ui.WRAP, ui.WRAP).apply { leftMargin = ui.px(16) })
+        body.addView(barRow, ui.lp(ui.MATCH, ui.WRAP).apply { topMargin = ui.px(14) })
 
         // controls
         val controls = ui.row().apply { gravity = Gravity.CENTER_VERTICAL }
         val back = ui.button("Back").apply { ui.icon(this, Icon.BACK, C.CREAM); setOnClickListener { jump(-1) } }
-        playBtn = ui.button("Start", primary = true, textSize = 28f).apply {
+        playBtn = ui.button("Start", textSize = 34f).apply {
+            typeface = ui.black
             minWidth = ui.px(220)
             setOnClickListener { toggle() }
         }

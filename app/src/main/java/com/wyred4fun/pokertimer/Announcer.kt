@@ -50,7 +50,9 @@ object Announcer {
     }
 
     private fun soundsOn() = app?.let { Prefs.sounds(it) } ?: true
-    private fun voiceOn() = app?.let { Prefs.voice(it) } ?: true
+    private fun voiceMode() = app?.let { Prefs.voiceMode(it) } ?: Prefs.VOICE_BLINDS
+    /** Is the spoken 1-minute warning wanted? */
+    val warningWords: Boolean get() = voiceMode() == Prefs.VOICE_ALL
 
     fun knock() { if (soundsOn()) play(knockTrack) }
 
@@ -73,7 +75,7 @@ object Announcer {
         // don't play over a real countdown that is happening right now
         val e = MainActivity.live
         val now = android.os.SystemClock.elapsedRealtime()
-        if (e != null && e.running && e.next != null && e.secondsLeft(now) <= Sounds.MAX_HITS + 1) return
+        if (e != null && e.running && e.next != null && e.secondsLeft(now) <= knockHits + e.knocks + 1) return
         for (i in 0 until knockHits) later(i * 1000L) { play(knockTrack) }
     }
 
@@ -90,7 +92,7 @@ object Announcer {
     fun chime() { if (soundsOn()) play(chimeTrack) }
 
     fun say(text: String, delayMs: Long = 0) {
-        if (!voiceOn()) return
+        if (voiceMode() == Prefs.VOICE_OFF) return
         val r = Runnable {
             if (ttsReady) tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "poker")
         }
@@ -107,9 +109,10 @@ object Announcer {
     fun demo() {
         hushPreview()
         chime()
-        later(1500) { say("Attention players. Blinds will be going up in one minute.") }
-        for (i in 0 until knockHits) later(6000L + i * 1000L) { knock() }
-        later(6000L + knockHits * 1000L + 150L) { say("Attention players. Blinds are now 2 and 4.") }
+        val gap = if (warningWords) 6000L else 3000L
+        if (warningWords) later(1500) { say("Attention players. Blinds will be going up in one minute.") }
+        for (i in 0 until knockHits) later(gap + i * 1000L) { knock() }
+        later(gap + knockHits * 1000L + 150L) { say("Attention players. Blinds have gone up to 2 and 4.") }
     }
 
     private fun play(t: AudioTrack?) {

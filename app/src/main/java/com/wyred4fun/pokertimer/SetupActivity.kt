@@ -100,7 +100,7 @@ class SetupActivity : Activity() {
                 setCompoundDrawables(d, null, null, null)
                 setPadding(ui.px(17), 0, 0, 0)
                 contentDescription = "Remove this row"
-                setOnClickListener { removeRow(i) }
+                setOnClickListener { deletePressed(i, this) }
             }
             row.addView(del, ui.lp(ui.px(60), ui.px(60)))
             listCol.addView(row, ui.lp(ui.MATCH, ui.px(84)).apply { topMargin = if (i == 0) 0 else ui.px(10) })
@@ -163,6 +163,26 @@ class SetupActivity : Activity() {
         }
         save()
         return nv
+    }
+
+    /** × must be pressed twice (within 3 s) so a stray OK never deletes a level. */
+    private var deleteArmedRow = -1
+    private var deleteArmedUntil = 0L
+    private fun deletePressed(i: Int, btn: TextView) {
+        val now = SystemClock.elapsedRealtime()
+        if (deleteArmedRow == i && now < deleteArmedUntil) {
+            deleteArmedRow = -1
+            removeRow(i)
+            return
+        }
+        deleteArmedRow = i
+        deleteArmedUntil = now + 3000
+        btn.background = ui.pillBg(C.STOP_BG, C.ORANGE, C.STOP_BG, C.ORANGE, 30f)
+        Toast.makeText(this, "Press \u00D7 again to remove this row", Toast.LENGTH_SHORT).show()
+        btn.postDelayed({
+            if (deleteArmedRow == i && SystemClock.elapsedRealtime() >= deleteArmedUntil) deleteArmedRow = -1
+            if (deleteArmedRow != i) btn.background = ui.pillBg(Color.TRANSPARENT, C.EDGE, C.PANEL_HI, C.GOLD, 30f)
+        }, 3100)
     }
 
     private fun removeRow(i: Int) {
@@ -318,12 +338,12 @@ class SetupActivity : Activity() {
 
     private fun refreshKnock() {
         val i = Sounds.ALL.indexOf(Sounds.byId(Prefs.knockSound(this)))
-        knockBtn.text = "Notification:  ${Sounds.ALL[i].name}"
+        knockBtn.text = "Sound:  " + Sounds.ALL[i].name
         ui.icon(knockBtn, Icon.SLIDERS, C.CREAM, 28f)
     }
 
     private fun switchRow(label: String, key: String, read: () -> Boolean): TextView =
-        ui.button(label, height = 62f, textSize = 28f).apply {
+        ui.button(label, height = 56f, textSize = 28f).apply {
             gravity = Gravity.CENTER_VERTICAL
             setPadding(ui.px(26), 0, ui.px(26), 0)
             background = ui.pillBg(C.FELT, C.EDGE, C.PANEL_HI, C.GOLD, 20f)
@@ -339,7 +359,7 @@ class SetupActivity : Activity() {
         val now = SystemClock.elapsedRealtime()
         if (now > restoreConfirmUntil) {
             restoreConfirmUntil = now + 4000
-            restoreBtn.text = "Press again to reset"
+            restoreBtn.text = "Press again"
             restoreBtn.postDelayed({
                 if (SystemClock.elapsedRealtime() >= restoreConfirmUntil) restoreBtn.text = "Reset"
             }, 4100)
@@ -431,13 +451,8 @@ class SetupActivity : Activity() {
             ui.icon(this, Icon.RESET, C.CREAM, 26f)
             setOnClickListener { restoreDefault() }
         }
-        adds.addView(restoreBtn)
-        val done = ui.button("Done", primary = true, height = 68f, textSize = 28f).apply {
-            ui.icon(this, Icon.CHECK, C.GOLD_INK, 26f)
-            setPadding(ui.px(40), 0, ui.px(40), 0)
-            setOnClickListener { finish() }
-        }
-        adds.addView(done, (done.layoutParams as LinearLayout.LayoutParams).apply { leftMargin = ui.px(16) })
+        // fixed width so "Press again" doesn't push Done around
+        adds.addView(restoreBtn, ui.lp(ui.px(250), ui.px(68)))
         left.addView(adds, ui.lp(ui.MATCH, ui.WRAP).apply { topMargin = ui.px(16) })
 
         // right: switches (scrolls if they don't all fit)
@@ -445,30 +460,64 @@ class SetupActivity : Activity() {
             background = ui.round(C.PANEL, 32f)
             setPadding(ui.px(40), ui.px(16), ui.px(40), ui.px(16))
         }
-        main.addView(rightPanel, ui.lp(ui.px(600), ui.MATCH).apply { leftMargin = ui.px(56) })
+        val rightSide = ui.col()
+        main.addView(rightSide, ui.lp(ui.px(600), ui.MATCH).apply { leftMargin = ui.px(56) })
+        rightSide.addView(rightPanel, ui.lp(ui.MATCH, 0, 1f))
+        val done = ui.button("Done", height = 76f, textSize = 34f).apply {
+            typeface = ui.black
+            ui.icon(this, Icon.CHECK, C.CREAM, 32f)
+            setPadding(ui.px(48), 0, ui.px(48), 0)
+            setOnClickListener { finish() }
+        }
+        val doneRow = ui.row().apply { gravity = Gravity.END }
+        doneRow.addView(done)
+        rightSide.addView(doneRow, ui.lp(ui.MATCH, ui.WRAP).apply { topMargin = ui.px(18) })
         val rightScroll = ScrollView(this).apply { isVerticalScrollBarEnabled = false }
-        val right = ui.col().apply { setPadding(0, ui.px(20), 0, ui.px(20)) }
+        val right = ui.col().apply { setPadding(0, ui.px(12), 0, ui.px(8)) }
         rightScroll.addView(right)
         rightPanel.addView(rightScroll, ui.lp(ui.MATCH, ui.MATCH))
         right.addView(ui.text(24f, C.MUTED, ui.bold, 0.16f).apply { text = "SOUND & VOICE" })
         val gap = { v: View, top: Int -> right.addView(v, ui.lp(ui.MATCH, (v.layoutParams as? LinearLayout.LayoutParams)?.height ?: ui.WRAP).apply { topMargin = ui.px(top) }) }
-        gap(switchRow("Chime & notification", "sounds") { Prefs.sounds(this) }, 20)
-        gap(switchRow("Voice", "voice") { Prefs.voice(this) }, 14)
-        knockBtn = ui.button("Notification sound", height = 62f, textSize = 28f).apply {
+        gap(switchRow("Chime & notification", "sounds") { Prefs.sounds(this) }, 10)
+        gap(ui.button("Voice", height = 56f, textSize = 28f).apply {
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(ui.px(26), 0, ui.px(26), 0)
+            background = ui.pillBg(C.FELT, C.EDGE, C.PANEL_HI, C.GOLD, 20f)
+            fun show() {
+                val m = Prefs.voiceMode(this@SetupActivity)
+                toggleText(this, "Voice:  " + when (m) {
+                    Prefs.VOICE_OFF -> "Off"
+                    Prefs.VOICE_ALL -> "1-min warning + blinds"
+                    else -> "Blinds only"
+                }, m != Prefs.VOICE_OFF)
+            }
+            show()
+            // OK steps through Blinds only -> 1-min warning + blinds -> Off
+            setOnClickListener {
+                val m = Prefs.voiceMode(this@SetupActivity)
+                Prefs.setVoiceMode(this@SetupActivity, when (m) {
+                    Prefs.VOICE_BLINDS -> Prefs.VOICE_ALL
+                    Prefs.VOICE_ALL -> Prefs.VOICE_OFF
+                    else -> Prefs.VOICE_BLINDS
+                })
+                show()
+            }
+        }, 10)
+        knockBtn = ui.button("Notification sound", height = 56f, textSize = 28f).apply {
             gravity = Gravity.CENTER_VERTICAL
             setPadding(ui.px(26), 0, ui.px(26), 0)
             background = ui.pillBg(C.FELT, C.EDGE, C.PANEL_HI, C.GOLD, 20f)
             ellipsize = android.text.TextUtils.TruncateAt.END
             setOnClickListener { startActivity(Intent(this@SetupActivity, SoundsActivity::class.java)) }
         }
-        gap(knockBtn, 14)
+        gap(knockBtn, 10)
         refreshKnock()
-        gap(ui.button("Test sounds", height = 60f).apply {
+        gap(ui.button("Test sounds", height = 56f).apply {
             ui.icon(this, Icon.PLAY, C.CREAM, 26f)
             setOnClickListener { Announcer.demo() }
-        }, 14)
-        right.addView(ui.text(24f, C.MUTED, ui.bold, 0.16f).apply { text = "OTHER" }, ui.lp(ui.WRAP, ui.WRAP).apply { topMargin = ui.px(30) })
-        startupBtn = ui.button("Open at startup", height = 62f, textSize = 28f).apply {
+        }, 10)
+        right.addView(ui.text(24f, C.MUTED, ui.bold, 0.16f).apply { text = "OTHER" }, ui.lp(ui.WRAP, ui.WRAP).apply { topMargin = ui.px(22) })
+        startupBtn = ui.button("Open at startup", height = 56f, textSize = 28f).apply {
             gravity = Gravity.CENTER_VERTICAL
             setPadding(ui.px(26), 0, ui.px(26), 0)
             background = ui.pillBg(C.FELT, C.EDGE, C.PANEL_HI, C.GOLD, 20f)
@@ -479,12 +528,12 @@ class SetupActivity : Activity() {
                 if (nv && !startupAllowed()) askStartupPermission()
             }
         }
-        gap(startupBtn, 16)
+        gap(startupBtn, 10)
         startupNote = ui.text(22f, C.MUTED, ui.bold).apply { setSingleLine(false) }
         right.addView(startupNote, ui.lp(ui.MATCH, ui.WRAP).apply { topMargin = ui.px(8) })
         refreshStartup()
-        gap(switchRow("Blinds in chips", "chips") { Prefs.chips(this) }, 16)
-        gap(switchRow("Test mode (30 s levels)", "testMode") { Prefs.testMode(this) }, 16)
+        gap(switchRow("Blinds in chips", "chips") { Prefs.chips(this) }, 10)
+        gap(switchRow("Test mode (75 s levels)", "testMode") { Prefs.testMode(this) }, 10)
 
         rebuildList()
         root.post {

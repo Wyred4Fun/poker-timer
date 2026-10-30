@@ -32,7 +32,7 @@ object Theme {
         "detroit" to "Honolulu blue & silver",
         "casino" to "Casino red & gold",
         "midnight" to "Midnight & gold",
-        "royal" to "Royal purple & silver",
+        "teal" to "Teal & sand",
         "slate" to "Slate & ice blue"
     )
 
@@ -45,7 +45,7 @@ object Theme {
             "detroit" -> listOf("#071E33", "#0C2C4A", "#123B62", "#1D4C78", "#2E6496", "#F4F7FA", "#AEB9C4", "#B0B7BC", "#D3D8DC", "#06182A", "#0076B6", "#FFFFFF")
             "casino" -> listOf("#3A0B10", "#4C1218", "#631C23", "#7A2A31", "#934049", "#F7EFE6", "#D9B9B2", "#E3B341", "#F3CB66", "#1F1404", "#E3B341", "#1F1404")
             "midnight" -> listOf("#0B0B0E", "#17171C", "#24242B", "#33333C", "#4A4A55", "#F2EFE8", "#B4B0A6", "#D4AF37", "#E8C75A", "#151003", "#D4AF37", "#151003")
-            "royal" -> listOf("#1E0F36", "#2A1747", "#38205C", "#4A2E73", "#62438F", "#F5F1FA", "#C2B5D6", "#C0C0C8", "#DCDCE2", "#160B28", "#9B6BE0", "#FFFFFF")
+            "teal" -> listOf("#0A2729", "#103538", "#17454A", "#215659", "#2F6F72", "#F6F1E7", "#B4C9C6", "#E6C79C", "#F2DCBA", "#1E160A", "#2FB7A8", "#04201E")
             "slate" -> listOf("#15191E", "#1E242B", "#29313A", "#36404B", "#4B5765", "#F1F4F7", "#AAB5C0", "#8FD3FF", "#B5E2FF", "#06202F", "#8FD3FF", "#06202F")
             else -> listOf("#0B2E24", "#12392D", "#1D4D3E", "#2C5E4C", "#3A6E5B", "#F4EFE3", "#A9C4B7", "#E9B949", "#F6CF6A", "#1C1503", "#5FBF94", "#06251A")
         }.map { c(it) }

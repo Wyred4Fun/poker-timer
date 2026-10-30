@@ -35,8 +35,8 @@ class TimerEngine(levels: List<Level>, private val listener: Listener) {
 
     fun durationMs(i: Int): Long = if (testMode) TEST_SECONDS * 1000L else levels[i].minutes * 60_000L
 
-    /** When the spoken heads-up comes: 1:00 left, or 0:20 in test mode (levels are only 30 s there). */
-    val warnAt: Int get() = if (testMode) 20 else 60
+    /** When the 1-minute heads-up comes (test mode levels are 75 s, so it happens there too). */
+    val warnAt: Int get() = 60
 
     val current: Level get() = levels[idx]
     val next: Level? get() = levels.getOrNull(idx + 1)
@@ -172,7 +172,7 @@ class TimerEngine(levels: List<Level>, private val listener: Listener) {
     }
 
     companion object {
-        const val TEST_SECONDS = 30
+        const val TEST_SECONDS = 75
 
         fun ceilSec(ms: Long): Int = (-Math.floorDiv(-ms, 1000L)).toInt()
     }

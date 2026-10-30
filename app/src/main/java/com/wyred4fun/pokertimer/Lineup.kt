@@ -44,7 +44,9 @@ object Lineup {
                 if (f.size == 2 && f[0] == "B") {
                     out.add(Level(0, 0, f[1].toInt().coerceIn(1, 180), isBreak = true))
                 } else if (f.size == 3) {
-                    out.add(Level(f[0].toInt().coerceAtLeast(1), f[1].toInt().coerceAtLeast(1), f[2].toInt().coerceIn(1, 180)))
+                    // the big blind is always twice the small blind
+                    val sb = f[0].toInt().coerceAtLeast(1)
+                    out.add(Level(sb, sb * 2, f[2].toInt().coerceIn(1, 180)))
                 } else return null
             } catch (e: NumberFormatException) {
                 return null
@@ -65,7 +67,18 @@ object Lineup {
 object Prefs {
     private const val PREFS = "poker_timer"
     fun sounds(ctx: Context) = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean("sounds", true)
-    fun voice(ctx: Context) = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean("voice", true)
+    /** Voice: 0 = off, 1 = blinds only (default), 2 = 1-minute warning + blinds. */
+    fun voiceMode(ctx: Context): Int {
+        val p = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        if (p.contains("voiceMode")) return p.getInt("voiceMode", VOICE_BLINDS)
+        return if (p.getBoolean("voice", true)) VOICE_BLINDS else VOICE_OFF   // older switch
+    }
+    fun setVoiceMode(ctx: Context, m: Int) {
+        ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putInt("voiceMode", m).apply()
+    }
+    const val VOICE_OFF = 0
+    const val VOICE_BLINDS = 1
+    const val VOICE_ALL = 2
     fun openAtStartup(ctx: Context) = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean("openAtStartup", false)
     fun chips(ctx: Context) = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean("chips", true)
     fun testMode(ctx: Context) = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean("testMode", false)

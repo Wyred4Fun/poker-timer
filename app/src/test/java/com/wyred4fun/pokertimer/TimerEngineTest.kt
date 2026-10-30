@@ -148,18 +148,14 @@ class TimerEngineTest {
         assertFalse(e.running)
     }
 
-    @Test fun testModeLevelsAre30Seconds() {
+    @Test fun testModeLevelsAre75Seconds() {
         val r = Rec()
         val e = TimerEngine(Lineup.DEFAULT, r)
         e.testMode = true
         e.resetLevel(0)
         e.start(0)
-        assertEquals(30, e.secondsLeft(0))
-        run(e, 0, 9_900)
-        assertTrue(r.log.isEmpty())
-        e.update(10_000)                      // 0:20 left -> heads-up
-        assertEquals(listOf("warn 2 – 4"), r.log)
-        run(e, 10_100, 30_500)
+        assertEquals(75, e.secondsLeft(0))
+        run(e, 0, 75_500)
         assertEquals(listOf("warn 2 – 4", "knock 3", "knock 2", "knock 1", "now 2 – 4"), r.log)
     }
 
@@ -223,5 +219,11 @@ class TimerEngineTest {
             val expect = listOf("warn 2 – 4") + (n downTo 1).map { "knock $it" } + listOf("now 2 – 4")
             assertEquals(expect, r.log)
         }
+    }
+
+    @Test fun oldLineupBigBlindBecomesTwiceSmall() {
+        val l = Lineup.decode("3,5,20;B,15;10,25,15")!!
+        assertEquals(Level(3, 6, 20), l[0])
+        assertEquals(Level(10, 20, 15), l[2])
     }
 }
