@@ -35,7 +35,7 @@ class TimerEngineTest {
         val e = TimerEngine(Lineup.DEFAULT, r)
         e.start(0)
         run(e, 0, 20 * 60_000L + 500)
-        assertEquals(listOf("warn 2 – 4", "knock 3", "knock 2", "knock 1", "now 2 – 4"), r.log)
+        assertEquals(listOf("warn 2 – 4", "knock 5", "knock 4", "knock 3", "knock 2", "knock 1", "now 2 – 4"), r.log)
         assertEquals(1, e.idx)
         assertEquals(20 * 60, e.secondsLeft(20 * 60_000L))
     }
@@ -57,8 +57,8 @@ class TimerEngineTest {
         e.start(0)
         run(e, 0, 20 * 60_000L + 15 * 60_000L + 500)
         assertEquals(
-            listOf("warn 0 – 0 break", "knock 3", "knock 2", "knock 1", "now break",
-                "warn 5 – 10", "knock 3", "knock 2", "knock 1", "now 5 – 10"),
+            listOf("warn 0 – 0 break", "knock 5", "knock 4", "knock 3", "knock 2", "knock 1", "now break",
+                "warn 5 – 10", "knock 5", "knock 4", "knock 3", "knock 2", "knock 1", "now 5 – 10"),
             r.log
         )
     }
@@ -125,7 +125,7 @@ class TimerEngineTest {
         assertTrue(e.finished)
         assertEquals(14, r.log.count { it.startsWith("now") })
         assertEquals(14, r.log.count { it.startsWith("warn") })
-        assertEquals(14 * 3, r.log.count { it.startsWith("knock") })
+        assertEquals(14 * 5, r.log.count { it.startsWith("knock") })
     }
 
     @Test fun reopeningAfterAwayCatchesUpQuietly() {
@@ -156,7 +156,7 @@ class TimerEngineTest {
         e.start(0)
         assertEquals(75, e.secondsLeft(0))
         run(e, 0, 75_500)
-        assertEquals(listOf("warn 2 – 4", "knock 3", "knock 2", "knock 1", "now 2 – 4"), r.log)
+        assertEquals(listOf("warn 2 – 4", "knock 5", "knock 4", "knock 3", "knock 2", "knock 1", "now 2 – 4"), r.log)
     }
 
     @Test fun changedLineupKeepsPlace() {

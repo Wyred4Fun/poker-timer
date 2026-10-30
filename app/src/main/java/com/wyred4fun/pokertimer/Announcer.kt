@@ -25,7 +25,7 @@ object Announcer {
     private var knockTrack: AudioTrack? = null
     private var knockId: String? = null
     /** How many times the chosen notification sound plays before the blinds go up. */
-    val knockHits: Int get() = Sounds.byId(knockId).hits
+    val knockHits: Int get() = TimerEngine.COUNTDOWN
     private var chimeTrack: AudioTrack? = null
     private val main = Handler(Looper.getMainLooper())
 
@@ -112,7 +112,7 @@ object Announcer {
         val gap = if (warningWords) 6000L else 3000L
         if (warningWords) later(1500) { say("Attention players. Blinds will be going up in one minute.") }
         for (i in 0 until knockHits) later(gap + i * 1000L) { knock() }
-        later(gap + knockHits * 1000L + 150L) { say("Attention players. Blinds have gone up to 2 and 4.") }
+        later(gap + knockHits * 1000L + 150L) { say("Attention players. The blinds have now changed to 2 and 4.") }
     }
 
     private fun play(t: AudioTrack?) {

@@ -94,7 +94,7 @@ class SoundsActivity : Activity() {
                 list.addView(row, ui.lp(ui.MATCH, ui.px(84)).apply { if (i > 0) topMargin = ui.px(14) })
             }
             val t = ui.text(30f, C.CREAM, ui.bold).apply {
-                text = "${s.name}   \u00B7   plays ${if (s.hits == 1) "once" else if (s.hits == 2) "twice" else "${s.hits} times"}"
+                text = s.name
                 gravity = Gravity.CENTER_VERTICAL
                 setPadding(ui.px(28), 0, ui.px(28), 0)
                 isFocusable = true

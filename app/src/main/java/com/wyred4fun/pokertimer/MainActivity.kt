@@ -57,7 +57,6 @@ class MainActivity : Activity(), TimerEngine.Listener {
 
     private val ticker = object : Runnable {
         override fun run() {
-            engine.knocks = Announcer.knockHits
             engine.update(SystemClock.elapsedRealtime())
             snapBackIfIdle()
             render()
@@ -73,7 +72,6 @@ class MainActivity : Activity(), TimerEngine.Listener {
         useChips = Prefs.chips(this)
         ui = Ui(this)
         engine = TimerEngine(Lineup.load(this), this)
-        engine.knocks = Announcer.knockHits
         live = engine
         engine.testMode = Prefs.testMode(this)
         restoreState()
@@ -141,7 +139,7 @@ class MainActivity : Activity(), TimerEngine.Listener {
         saveState()
         if (quiet) return
         flashUntil = SystemClock.elapsedRealtime() + 8000
-        Announcer.say(if (now.isBreak) "Attention players. Break time. ${now.minutes} minutes." else "Attention players. Blinds have gone up to ${now.blindsSpoken}.", 150)
+        Announcer.say(if (now.isBreak) "Attention players. Break time. ${now.minutes} minutes." else "Attention players. The blinds have now changed to ${now.blindsSpoken}.", 150)
     }
 
     override fun onFinished(quiet: Boolean) {

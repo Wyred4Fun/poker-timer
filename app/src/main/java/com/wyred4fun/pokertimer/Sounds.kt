@@ -1,19 +1,19 @@
 package com.wyred4fun.pokertimer
 
 /**
- * The notification sounds Jeff kept. Each plays a set number of times, one per second,
- * finishing as the blinds go up (Setup > Notification sound).
+ * The notification sounds Jeff kept. The chosen one plays once a second for the last
+ * 5 seconds (5, 4, 3, 2, 1) as the blinds go up (Setup > Notification sound).
  */
 object Sounds {
-    data class Sound(val id: String, val name: String, val res: Int, val hits: Int)
+    data class Sound(val id: String, val name: String, val res: Int)
 
     const val DEFAULT = "p09"
 
     val ALL: List<Sound> = listOf(
-        Sound("c24", "Desk bell ding", R.raw.knock_c24, 1),
-        Sound("c23", "Cowbell, short", R.raw.knock_c23, 2),
-        Sound("p09", "Woodblock, high", R.raw.knock_p09, 3),
-        Sound("p16", "Temple block, warm", R.raw.knock_p16, 3)
+        Sound("c24", "Desk bell ding", R.raw.knock_c24),
+        Sound("c23", "Cowbell, short", R.raw.knock_c23),
+        Sound("p09", "Woodblock, high", R.raw.knock_p09),
+        Sound("p16", "Temple block, warm", R.raw.knock_p16)
     )
 
     /** A saved choice that no longer exists falls back to the default. */

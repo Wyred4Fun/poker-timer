@@ -20,8 +20,8 @@ class TimerEngine(levels: List<Level>, private val listener: Listener) {
     var levels: List<Level> = levels
         private set
     var testMode = false
-    /** How many notification sounds lead into the new blinds (one per second); set from the chosen sound. */
-    var knocks = 3
+    /** How many notification sounds lead into the new blinds (one per second: 5, 4, 3, 2, 1). */
+    var knocks = COUNTDOWN
     var idx = 0
         private set
     var running = false
@@ -173,6 +173,8 @@ class TimerEngine(levels: List<Level>, private val listener: Listener) {
 
     companion object {
         const val TEST_SECONDS = 75
+        /** The last 5 seconds count down with the notification sound. */
+        const val COUNTDOWN = 5
 
         fun ceilSec(ms: Long): Int = (-Math.floorDiv(-ms, 1000L)).toInt()
     }
