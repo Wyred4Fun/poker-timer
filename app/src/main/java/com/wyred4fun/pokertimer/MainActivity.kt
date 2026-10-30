@@ -1,0 +1,407 @@
+package com.wyred4fun.pokertimer
+
+import android.app.Activity
+import android.content.Context
+import android.content.Intent
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.RectF
+import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.os.SystemClock
+import android.view.Gravity
+import android.view.KeyEvent
+import android.view.View
+import android.view.WindowManager
+import android.widget.FrameLayout
+import android.widget.LinearLayout
+import android.widget.TextView
+import android.widget.Toast
+
+class MainActivity : Activity(), TimerEngine.Listener {
+
+    private lateinit var ui: Ui
+    private lateinit var engine: TimerEngine
+    private val handler = Handler(Looper.getMainLooper())
+
+    private lateinit var topLabel: TextView
+    private lateinit var levelLabel: TextView
+    private lateinit var nextText: TextView
+    private lateinit var centerLabel: TextView
+    private lateinit var bigText: TextView
+    private lateinit var timerText: TextView
+    private lateinit var banner: LinearLayout
+    private lateinit var bannerText: TextView
+    private lateinit var bannerNum: TextView
+    private lateinit var progress: ProgressBarView
+    private lateinit var playBtn: TextView
+    private lateinit var stopBtn: TextView
+
+    private var flashUntil = 0L
+    private var confirmStopUntil = 0L
+    private var backPressedAt = 0L
+
+    private val ticker = object : Runnable {
+        override fun run() {
+            engine.update(SystemClock.elapsedRealtime())
+            render()
+            handler.postDelayed(this, 100)
+        }
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        Announcer.init(this)
+        ui = Ui(this)
+        engine = TimerEngine(Lineup.load(this), this)
+        live = engine
+        engine.testMode = Prefs.testMode(this)
+        restoreState()
+        setContentView(build())
+        playBtn.requestFocus()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // pick up any changes made on the Setup screen
+        val now = SystemClock.elapsedRealtime()
+        val test = Prefs.testMode(this)
+        if (test != engine.testMode) {
+            engine.testMode = test
+            engine.resetLevel(now)
+        }
+        engine.setLevels(Lineup.load(this), now)
+        handler.removeCallbacks(ticker)
+        handler.post(ticker)
+    }
+
+    override fun onPause() {
+        super.onPause()
+        // the clock (and its sounds) keep going while Setup is open
+        saveState()
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        handler.removeCallbacks(ticker)
+        saveState()
+        if (live === engine) live = null
+    }
+
+    companion object {
+        /** The running clock, so Setup can apply changes to it straight away. */
+        var live: TimerEngine? = null
+    }
+
+    // ---------- the clock's events ----------
+
+    override fun onWarning(current: Level, next: Level) {
+        Announcer.chime()
+        val msg = when {
+            current.isBreak -> "Attention players. The break ends in one minute. Please head back to the table."
+            next.isBreak -> "Attention players. Break starts in one minute."
+            else -> "Attention players. Blinds will be going up in one minute."
+        }
+        Announcer.say(msg, 1500)
+    }
+
+    override fun onCountdown(secondsLeft: Int) {
+        Announcer.knock()
+    }
+
+    override fun onLevelChanged(now: Level, quiet: Boolean) {
+        saveState()
+        if (quiet) return
+        flashUntil = SystemClock.elapsedRealtime() + 8000
+        Announcer.say(if (now.isBreak) "Break time. ${now.minutes} minutes." else "Blinds are now ${now.blindsSpoken}.", 350)
+    }
+
+    override fun onFinished(quiet: Boolean) {
+        saveState()
+        if (!quiet) Announcer.say("Time is up on the final level.", 350)
+    }
+
+    // ---------- buttons ----------
+
+    private fun toggle() {
+        val now = SystemClock.elapsedRealtime()
+        if (engine.finished) {
+            Toast.makeText(this, "The final level is over. Press Stop twice to start a new night.", Toast.LENGTH_LONG).show()
+            return
+        }
+        if (engine.running) engine.pause(now) else engine.start(now)
+        saveState()
+        render()
+    }
+
+    private fun jump(delta: Int) {
+        val now = SystemClock.elapsedRealtime()
+        if (engine.goTo(engine.idx + delta, now)) {
+            Announcer.hush()
+            flashUntil = 0
+            saveState()
+            render()
+        }
+    }
+
+    private fun resetLevel() {
+        Announcer.hush()
+        engine.resetLevel(SystemClock.elapsedRealtime())
+        flashUntil = 0
+        saveState()
+        render()
+    }
+
+    private fun stop() {
+        val now = SystemClock.elapsedRealtime()
+        if (now > confirmStopUntil) {
+            confirmStopUntil = now + 4000
+            render()
+            return
+        }
+        confirmStopUntil = 0
+        Announcer.hush()
+        engine.stopAll()
+        flashUntil = 0
+        saveState()
+        render()
+    }
+
+    override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
+        when (keyCode) {
+            KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, KeyEvent.KEYCODE_MEDIA_PLAY, KeyEvent.KEYCODE_MEDIA_PAUSE -> {
+                if (event.repeatCount > 0) return true
+                val wantPlay = keyCode == KeyEvent.KEYCODE_MEDIA_PLAY
+                val wantPause = keyCode == KeyEvent.KEYCODE_MEDIA_PAUSE
+                if ((wantPlay && engine.running) || (wantPause && !engine.running)) return true
+                toggle(); return true
+            }
+            KeyEvent.KEYCODE_BACK -> {
+                val now = SystemClock.elapsedRealtime()
+                if (now - backPressedAt < 2500) return super.onKeyDown(keyCode, event)
+                backPressedAt = now
+                Toast.makeText(this, "Press Back again to leave the timer", Toast.LENGTH_SHORT).show()
+                return true
+            }
+        }
+        return super.onKeyDown(keyCode, event)
+    }
+
+    // ---------- saving, so closing the app never loses the night ----------
+
+    private fun saveState() {
+        val now = SystemClock.elapsedRealtime()
+        getSharedPreferences("poker_timer", Context.MODE_PRIVATE).edit()
+            .putInt("st_idx", engine.idx)
+            .putLong("st_msLeft", engine.msLeft(now))
+            .putBoolean("st_running", engine.running)
+            .putBoolean("st_finished", engine.finished)
+            .putLong("st_wall", System.currentTimeMillis())
+            .apply()
+    }
+
+    private fun restoreState() {
+        val p = getSharedPreferences("poker_timer", Context.MODE_PRIVATE)
+        if (!p.contains("st_idx")) return
+        val since = System.currentTimeMillis() - p.getLong("st_wall", System.currentTimeMillis())
+        engine.restore(
+            p.getInt("st_idx", 0),
+            p.getLong("st_msLeft", engine.durationMs(0)),
+            since,
+            p.getBoolean("st_running", false),
+            p.getBoolean("st_finished", false),
+            SystemClock.elapsedRealtime()
+        )
+    }
+
+    // ---------- drawing ----------
+
+    private fun render() {
+        val now = SystemClock.elapsedRealtime()
+        val cur = engine.current
+        val nx = engine.next
+        val s = engine.secondsLeft(now)
+        val levelCount = engine.levels.count { !it.isBreak }
+        val levelNum = engine.levels.take(engine.idx + 1).count { !it.isBreak }
+
+        set(topLabel, if (engine.testMode) "POKER NIGHT  ·  TEST MODE" else "POKER NIGHT")
+        topLabel.setTextColor(if (engine.testMode) C.ORANGE else C.MUTED)
+        set(levelLabel, if (cur.isBreak) "BREAK" else "LEVEL $levelNum OF $levelCount")
+        set(nextText, when {
+            nx == null -> "FINAL LEVEL"
+            nx.isBreak -> "${nx.minutes}-MIN BREAK"
+            else -> "${nx.blindsText}  ·  ${nx.minutes} MIN"
+        })
+        if (cur.isBreak) {
+            set(centerLabel, "STRETCH YOUR LEGS")
+            set(bigText, "BREAK"); bigText.setTextColor(C.GOLD)
+        } else {
+            set(centerLabel, "BLINDS")
+            set(bigText, cur.blindsText); bigText.setTextColor(C.CREAM)
+        }
+        set(timerText, "%d:%02d".format(s / 60, s % 60))
+
+        val counting = nx != null && s in 1..5
+        val warning = nx != null && s in 6..60 && engine.durationMs(engine.idx) > 60_000L
+        val flash = now < flashUntil && !warning && !counting
+        timerText.setTextColor(if (counting) C.ORANGE else if (warning) C.GOLD else C.CREAM)
+
+        when {
+            counting -> {
+                showBanner(C.ORANGE, C.ORANGE_INK)
+                set(bannerText, if (nx!!.isBreak) "BREAK IN" else if (cur.isBreak) "BACK IN" else "BLINDS GO UP IN")
+                bannerText.typeface = ui.black; bannerText.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, 46f * ui.scale)
+                set(bannerNum, s.toString()); bannerNum.visibility = View.VISIBLE
+            }
+            warning -> {
+                showBanner(C.GOLD, C.GOLD_INK)
+                set(bannerText, when {
+                    cur.isBreak -> "Break ends in 1 minute — back to the table"
+                    nx!!.isBreak -> "Attention players — break starts in 1 minute"
+                    else -> "Attention players — blinds go up to ${nx.blindsText} in 1 minute"
+                })
+                bannerText.typeface = ui.black; bannerText.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, 44f * ui.scale)
+                bannerNum.visibility = View.GONE
+            }
+            flash || engine.finished -> {
+                showBanner(C.GREEN, C.GREEN_INK)
+                set(bannerText, when {
+                    engine.finished -> "FINAL LEVEL COMPLETE"
+                    cur.isBreak -> "BREAK TIME — ${cur.minutes} MINUTES"
+                    else -> "BLINDS ARE NOW ${cur.blindsText}"
+                })
+                bannerText.typeface = ui.bebas; bannerText.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, 84f * ui.scale)
+                bannerNum.visibility = View.GONE
+            }
+            else -> banner.visibility = View.INVISIBLE
+        }
+
+        val dur = engine.durationMs(engine.idx).toFloat()
+        progress.set(1f - engine.msLeft(now) / dur, if (counting) C.ORANGE else if (warning || cur.isBreak) C.GOLD else C.GREEN)
+
+        set(playBtn, if (engine.running) "Pause" else "Start")
+        if (playBtn.tag != engine.running) {
+            playBtn.tag = engine.running
+            ui.icon(playBtn, if (engine.running) Icon.PAUSE else Icon.PLAY, C.GOLD_INK)
+        }
+        val confirming = now < confirmStopUntil
+        set(stopBtn, if (confirming) "Press again to stop" else "Stop")
+        if (stopBtn.tag != confirming) {
+            stopBtn.tag = confirming
+            stopBtn.background = if (confirming) ui.pillBg(C.STOP_BG, C.ORANGE, C.STOP_BG, C.ORANGE)
+            else ui.pillBg(C.PANEL, C.EDGE, C.PANEL_HI, C.GOLD)
+        }
+    }
+
+    private fun showBanner(bg: Int, ink: Int) {
+        if (banner.tag != bg) {
+            banner.tag = bg
+            banner.background = ui.round(bg, 24f)
+        }
+        bannerText.setTextColor(ink); bannerNum.setTextColor(ink)
+        banner.visibility = View.VISIBLE
+    }
+
+    private fun set(t: TextView, s: String) { if (t.text.toString() != s) t.text = s }
+
+    private fun build(): View {
+        val root = FrameLayout(this).apply { setBackgroundColor(C.FELT) }
+        // the thin rounded "table edge" inside the screen
+        root.addView(View(this).apply { background = ui.round(0, 48f, 3, C.RULE) },
+            FrameLayout.LayoutParams(-1, -1).apply { setMargins(ui.px(24), ui.px(24), ui.px(24), ui.px(24)) })
+
+        val body = ui.col().apply { setPadding(ui.px(96), ui.px(56), ui.px(96), ui.px(56)) }
+        root.addView(body, FrameLayout.LayoutParams(-1, -1))
+
+        // header
+        val header = ui.row().apply { gravity = Gravity.BOTTOM }
+        val left = ui.col()
+        topLabel = ui.text(26f, C.MUTED, ui.bold, 0.24f)
+        levelLabel = ui.text(72f, C.GOLD, ui.bebas, 0.04f)
+        left.addView(topLabel, ui.lp(ui.WRAP, ui.WRAP)); left.addView(levelLabel, ui.lp(ui.WRAP, ui.WRAP).apply { topMargin = ui.px(6) })
+        val right = ui.col().apply { gravity = Gravity.END }
+        val upNext = ui.text(26f, C.MUTED, ui.bold, 0.24f).apply { text = "UP NEXT" }
+        nextText = ui.text(72f, C.CREAM, ui.bebas, 0.04f)
+        right.addView(upNext, ui.lp(ui.WRAP, ui.WRAP)); right.addView(nextText, ui.lp(ui.WRAP, ui.WRAP).apply { topMargin = ui.px(6) })
+        header.addView(left, ui.lp(0, ui.WRAP, 1f))
+        header.addView(right, ui.lp(ui.WRAP, ui.WRAP))
+        body.addView(header, ui.lp(ui.MATCH, ui.WRAP))
+
+        // center: blinds and clock
+        val center = ui.col().apply { gravity = Gravity.CENTER }
+        centerLabel = ui.text(34f, C.MUTED, ui.bold, 0.3f)
+        bigText = ui.text(300f, C.CREAM, ui.bebas, 0.02f)
+        timerText = ui.text(176f, C.CREAM, ui.bebas, 0.06f)
+        center.addView(centerLabel, ui.lp(ui.WRAP, ui.WRAP))
+        center.addView(bigText, ui.lp(ui.WRAP, ui.WRAP).apply { topMargin = ui.px(4) })
+        center.addView(timerText, ui.lp(ui.WRAP, ui.WRAP).apply { topMargin = ui.px(-34) })
+        body.addView(center, ui.lp(ui.MATCH, 0, 1f))
+
+        // banner (warning / countdown / blinds are now)
+        banner = ui.row().apply {
+            gravity = Gravity.CENTER
+            setPadding(ui.px(40), 0, ui.px(40), 0)
+            visibility = View.INVISIBLE
+        }
+        bannerText = ui.text(44f, C.GOLD_INK, ui.black)
+        bannerNum = ui.text(120f, C.ORANGE_INK, ui.bebas)
+        banner.addView(bannerText)
+        banner.addView(bannerNum, ui.lp(ui.WRAP, ui.WRAP).apply { leftMargin = ui.px(36) })
+        body.addView(banner, ui.lp(ui.MATCH, ui.px(104)).apply { topMargin = ui.px(24) })
+
+        // progress bar
+        progress = ProgressBarView(this, ui)
+        body.addView(progress, ui.lp(ui.MATCH, ui.px(16)).apply { topMargin = ui.px(24) })
+
+        // controls
+        val controls = ui.row().apply { gravity = Gravity.CENTER_VERTICAL }
+        val back = ui.button("Back").apply { ui.icon(this, Icon.BACK, C.CREAM); setOnClickListener { jump(-1) } }
+        playBtn = ui.button("Start", primary = true, textSize = 28f).apply {
+            minWidth = ui.px(220)
+            setOnClickListener { toggle() }
+        }
+        val reset = ui.button("Reset level").apply { ui.icon(this, Icon.RESET, C.CREAM); setOnClickListener { resetLevel() } }
+        val skip = ui.button("Skip").apply { ui.icon(this, Icon.SKIP, C.CREAM); setOnClickListener { jump(1) } }
+        stopBtn = ui.button("Stop").apply { ui.icon(this, Icon.STOP, C.CREAM, 26f); setOnClickListener { stop() } }
+        val setup = ui.button("Setup").apply {
+            ui.icon(this, Icon.SLIDERS, C.CREAM)
+            setOnClickListener { startActivity(Intent(this@MainActivity, SetupActivity::class.java)) }
+        }
+        for ((i, b) in listOf(back, playBtn, reset, skip, stopBtn).withIndex()) {
+            controls.addView(b, (b.layoutParams as LinearLayout.LayoutParams).apply { if (i > 0) leftMargin = ui.px(16) })
+        }
+        controls.addView(View(this), ui.lp(0, 1, 1f))
+        controls.addView(setup)
+        body.addView(controls, ui.lp(ui.MATCH, ui.WRAP).apply { topMargin = ui.px(24) })
+
+        render()
+        return root
+    }
+}
+
+/** The thin bar showing how much of the level has gone by. */
+class ProgressBarView(ctx: Context, private val ui: Ui) : View(ctx) {
+    private val track = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = C.PANEL_HI }
+    private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
+    private var frac = 0f
+    private val r = RectF()
+
+    fun set(f: Float, color: Int) {
+        val nf = f.coerceIn(0f, 1f)
+        if (nf != frac || fill.color != color) {
+            frac = nf; fill.color = color; invalidate()
+        }
+    }
+
+    override fun onDraw(c: Canvas) {
+        val rad = height / 2f
+        r.set(0f, 0f, width.toFloat(), height.toFloat())
+        c.drawRoundRect(r, rad, rad, track)
+        if (frac > 0f) {
+            r.set(0f, 0f, width * frac, height.toFloat())
+            c.drawRoundRect(r, rad, rad, fill)
+        }
+    }
+}

@@ -1,0 +1,39 @@
+name: Build Poker Timer
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.14.3'
+
+      - name: Run gradle assembleRelease
+        run: gradle --no-daemon testReleaseUnitTest assembleRelease
+
+      - name: Publish the APK
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          APK="PokerTimer-1.0.${{ github.run_number }}.apk"
+          cp app/build/outputs/apk/release/app-release.apk "$APK"
+          gh release create "build-${{ github.run_number }}" "$APK" \
+            --prerelease \
+            --title "Poker Timer 1.0.${{ github.run_number }}" \
+            --notes "Built from commit ${{ github.sha }}" \
+          || gh release upload "build-${{ github.run_number }}" "$APK" --clobber
