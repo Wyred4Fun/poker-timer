@@ -17,14 +17,21 @@ import android.widget.TextView
 class SoundsActivity : Activity() {
 
     private lateinit var ui: Ui
+    private var themeShown = ""
     private val tiles = ArrayList<Pair<Sounds.Sound, TextView>>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         Announcer.init(this)
+        Theme.apply(Prefs.theme(this)); themeShown = Prefs.theme(this)
         ui = Ui(this)
         setContentView(build())
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (Prefs.theme(this) != themeShown) recreate()
     }
 
     override fun onPause() {
@@ -60,7 +67,7 @@ class SoundsActivity : Activity() {
         val header = ui.row().apply { gravity = Gravity.CENTER_VERTICAL }
         val titles = ui.col()
         titles.addView(ui.text(26f, C.MUTED, ui.bold, 0.24f).apply { text = "POKER NIGHT" })
-        titles.addView(ui.text(80f, C.GOLD, ui.bebas, 0.04f).apply { text = "KNOCK SOUND" },
+        titles.addView(ui.text(80f, C.GOLD, ui.bebas, 0.04f).apply { text = "NOTIFICATION SOUND" },
             ui.lp(ui.WRAP, ui.WRAP).apply { topMargin = ui.px(6) })
         header.addView(titles, ui.lp(0, ui.WRAP, 1f))
         val done = ui.button("Done", primary = true, height = 84f, textSize = 30f).apply {
@@ -72,7 +79,7 @@ class SoundsActivity : Activity() {
         body.addView(header, ui.lp(ui.MATCH, ui.WRAP))
 
         body.addView(ui.text(26f, C.MUTED, ui.bold).apply {
-            text = "Press OK to hear a sound. The one with the check is used for the countdown."
+            text = "Press OK to hear a sound. The one with the check plays as the blinds go up."
         }, ui.lp(ui.WRAP, ui.WRAP).apply { topMargin = ui.px(18) })
 
         val scroll = ScrollView(this).apply { isVerticalScrollBarEnabled = true; clipToPadding = false }
@@ -87,7 +94,7 @@ class SoundsActivity : Activity() {
                 list.addView(row, ui.lp(ui.MATCH, ui.px(84)).apply { if (i > 0) topMargin = ui.px(14) })
             }
             val t = ui.text(30f, C.CREAM, ui.bold).apply {
-                text = "${i + 1}.   ${s.name}"
+                text = "${s.name}   \u00B7   plays ${if (s.hits == 1) "once" else if (s.hits == 2) "twice" else "${s.hits} times"}"
                 gravity = Gravity.CENTER_VERTICAL
                 setPadding(ui.px(28), 0, ui.px(28), 0)
                 isFocusable = true

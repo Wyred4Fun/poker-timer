@@ -11,22 +11,49 @@ import android.view.Gravity
 import android.widget.LinearLayout
 import android.widget.TextView
 
-/** Colors from the design. */
+/** The colors on screen; a Theme fills them in before a screen is built. */
 object C {
-    val FELT = Color.parseColor("#0B2E24")
-    val PANEL = Color.parseColor("#12392D")
-    val PANEL_HI = Color.parseColor("#1D4D3E")
-    val RULE = Color.parseColor("#2C5E4C")
-    val EDGE = Color.parseColor("#3A6E5B")
-    val CREAM = Color.parseColor("#F4EFE3")
-    val MUTED = Color.parseColor("#A9C4B7")
-    val GOLD = Color.parseColor("#E9B949")
-    val GOLD_INK = Color.parseColor("#1C1503")
-    val ORANGE = Color.parseColor("#F08A3C")
-    val ORANGE_INK = Color.parseColor("#1C0B02")
-    val GREEN = Color.parseColor("#5FBF94")
-    val GREEN_INK = Color.parseColor("#06251A")
-    val STOP_BG = Color.parseColor("#5A2A12")
+    var FELT = 0; var PANEL = 0; var PANEL_HI = 0; var RULE = 0; var EDGE = 0
+    var CREAM = 0; var MUTED = 0
+    /** accent: level label, Start/Done buttons, 1-minute banner */
+    var GOLD = 0; var GOLD_HI = 0; var GOLD_INK = 0
+    var ORANGE = 0; var ORANGE_INK = 0
+    /** progress bar and the "Blinds are now" banner */
+    var GREEN = 0; var GREEN_INK = 0
+    var STOP_BG = 0
+    init { Theme.apply(Theme.GREEN_BAY) }
+}
+
+/** Color themes picked in Setup > Theme. The first is the default. */
+object Theme {
+    const val GREEN_BAY = "greenbay"
+    val ALL = listOf(
+        GREEN_BAY to "Green & gold",
+        "detroit" to "Honolulu blue & silver",
+        "casino" to "Casino red & gold",
+        "midnight" to "Midnight & gold",
+        "royal" to "Royal purple & silver",
+        "slate" to "Slate & ice blue"
+    )
+
+    fun name(id: String): String = ALL.firstOrNull { it.first == id }?.second ?: ALL[0].second
+
+    fun apply(id: String) {
+        fun c(s: String) = Color.parseColor(s)
+        // felt, panel, panel-hi, rule, edge, text, muted, accent, accent-hi, accent-ink, bar/banner, banner-ink
+        val p = when (id) {
+            "detroit" -> listOf("#071E33", "#0C2C4A", "#123B62", "#1D4C78", "#2E6496", "#F4F7FA", "#AEB9C4", "#B0B7BC", "#D3D8DC", "#06182A", "#0076B6", "#FFFFFF")
+            "casino" -> listOf("#3A0B10", "#4C1218", "#631C23", "#7A2A31", "#934049", "#F7EFE6", "#D9B9B2", "#E3B341", "#F3CB66", "#1F1404", "#E3B341", "#1F1404")
+            "midnight" -> listOf("#0B0B0E", "#17171C", "#24242B", "#33333C", "#4A4A55", "#F2EFE8", "#B4B0A6", "#D4AF37", "#E8C75A", "#151003", "#D4AF37", "#151003")
+            "royal" -> listOf("#1E0F36", "#2A1747", "#38205C", "#4A2E73", "#62438F", "#F5F1FA", "#C2B5D6", "#C0C0C8", "#DCDCE2", "#160B28", "#9B6BE0", "#FFFFFF")
+            "slate" -> listOf("#15191E", "#1E242B", "#29313A", "#36404B", "#4B5765", "#F1F4F7", "#AAB5C0", "#8FD3FF", "#B5E2FF", "#06202F", "#8FD3FF", "#06202F")
+            else -> listOf("#0B2E24", "#12392D", "#1D4D3E", "#2C5E4C", "#3A6E5B", "#F4EFE3", "#A9C4B7", "#E9B949", "#F6CF6A", "#1C1503", "#5FBF94", "#06251A")
+        }.map { c(it) }
+        C.FELT = p[0]; C.PANEL = p[1]; C.PANEL_HI = p[2]; C.RULE = p[3]; C.EDGE = p[4]
+        C.CREAM = p[5]; C.MUTED = p[6]; C.GOLD = p[7]; C.GOLD_HI = p[8]; C.GOLD_INK = p[9]
+        C.GREEN = p[10]; C.GREEN_INK = p[11]
+        C.ORANGE = c("#F08A3C"); C.ORANGE_INK = c("#1C0B02"); C.STOP_BG = c("#5A2A12")
+    }
 }
 
 /**
@@ -84,7 +111,7 @@ class Ui(private val act: Activity) {
             isFocusable = true
             isClickable = true
             setPadding(px(30), 0, px(30), 0)
-            background = if (primary) pillBg(C.GOLD, C.GOLD, Color.parseColor("#F6CF6A"), C.CREAM)
+            background = if (primary) pillBg(C.GOLD, C.GOLD, C.GOLD_HI, C.CREAM)
             else pillBg(C.PANEL, C.EDGE, C.PANEL_HI, C.GOLD)
             layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, px(height))
         }
@@ -105,7 +132,7 @@ class Ui(private val act: Activity) {
     val MATCH = LinearLayout.LayoutParams.MATCH_PARENT
 }
 
-enum class Icon { PLAY, PAUSE, BACK, SKIP, RESET, STOP, SLIDERS, PLUS, CROSS, CHECK, UPDOWN, DOWNLOAD }
+enum class Icon { PLAY, PAUSE, BACK, SKIP, RESET, STOP, SLIDERS, PLUS, CROSS, CHECK, DOWNLOAD, MINUS }
 
 /** Simple line icons drawn in code, matching the design's stroke icons. */
 class IconDrawable(private val kind: Icon, color: Int) : Drawable() {
@@ -139,17 +166,13 @@ class IconDrawable(private val kind: Icon, color: Int) : Drawable() {
                 c.drawLine(x(4f), y(6f), x(20f), y(6f), lineP); c.drawLine(x(4f), y(12f), x(20f), y(12f), lineP); c.drawLine(x(4f), y(18f), x(20f), y(18f), lineP)
                 c.drawCircle(x(15f), y(6f), 2.4f * u, fillP); c.drawCircle(x(9f), y(12f), 2.4f * u, fillP); c.drawCircle(x(17f), y(18f), 2.4f * u, fillP)
             }
+            Icon.MINUS -> c.drawLine(x(5f), y(12f), x(19f), y(12f), lineP)
             Icon.PLUS -> { c.drawLine(x(12f), y(5f), x(12f), y(19f), lineP); c.drawLine(x(5f), y(12f), x(19f), y(12f), lineP) }
             Icon.CROSS -> { c.drawLine(x(6f), y(6f), x(18f), y(18f), lineP); c.drawLine(x(18f), y(6f), x(6f), y(18f), lineP) }
             Icon.DOWNLOAD -> {
                 c.drawLine(x(12f), y(3.5f), x(12f), y(15f), lineP)
                 p.moveTo(x(7f), y(10.5f)); p.lineTo(x(12f), y(15.5f)); p.lineTo(x(17f), y(10.5f)); c.drawPath(p, lineP)
                 c.drawLine(x(4.5f), y(20f), x(19.5f), y(20f), lineP)
-            }
-            Icon.UPDOWN -> {
-                p.moveTo(x(12f), y(2.5f)); p.lineTo(x(18.5f), y(9.5f)); p.lineTo(x(5.5f), y(9.5f)); p.close()
-                p.moveTo(x(12f), y(21.5f)); p.lineTo(x(18.5f), y(14.5f)); p.lineTo(x(5.5f), y(14.5f)); p.close()
-                c.drawPath(p, fillP)
             }
             Icon.CHECK -> { p.moveTo(x(5f), y(12.5f)); p.lineTo(x(10f), y(17.5f)); p.lineTo(x(19f), y(7f)); c.drawPath(p, lineP) }
         }

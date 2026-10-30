@@ -14,7 +14,7 @@ import kotlin.math.sin
 
 /**
  * The chime, the wood knock and the spoken announcements.
- * The knock is one of the recorded sounds in res/raw (picked in Setup > Knock sound), the chime is made in code,
+ * The notification sound is one of the recorded sounds in res/raw (picked in Setup > Notification sound), the chime is made in code,
  * and the voice is the box's own text-to-speech.
  */
 object Announcer {
@@ -24,6 +24,8 @@ object Announcer {
     private var ttsReady = false
     private var knockTrack: AudioTrack? = null
     private var knockId: String? = null
+    /** How many times the chosen notification sound plays before the blinds go up. */
+    val knockHits: Int get() = Sounds.byId(knockId).hits
     private var chimeTrack: AudioTrack? = null
     private val main = Handler(Looper.getMainLooper())
 
@@ -71,8 +73,8 @@ object Announcer {
         // don't play over a real countdown that is happening right now
         val e = MainActivity.live
         val now = android.os.SystemClock.elapsedRealtime()
-        if (e != null && e.running && e.next != null && e.secondsLeft(now) <= TimerEngine.KNOCKS + 1) return
-        for (i in 0 until TimerEngine.KNOCKS) later(i * 1000L) { play(knockTrack) }
+        if (e != null && e.running && e.next != null && e.secondsLeft(now) <= Sounds.MAX_HITS + 1) return
+        for (i in 0 until knockHits) later(i * 1000L) { play(knockTrack) }
     }
 
     /** Previews and Test sounds are tagged, so stopping them never cuts off the running timer. */
@@ -106,8 +108,8 @@ object Announcer {
         hushPreview()
         chime()
         later(1500) { say("Attention players. Blinds will be going up in one minute.") }
-        for (i in 0 until TimerEngine.KNOCKS) later(6000L + i * 1000L) { knock() }
-        later(6000L + TimerEngine.KNOCKS * 1000L + 150L) { say("Attention players. Blinds are now 2 and 4.") }
+        for (i in 0 until knockHits) later(6000L + i * 1000L) { knock() }
+        later(6000L + knockHits * 1000L + 150L) { say("Attention players. Blinds are now 2 and 4.") }
     }
 
     private fun play(t: AudioTrack?) {

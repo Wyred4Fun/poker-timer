@@ -20,6 +20,8 @@ class TimerEngine(levels: List<Level>, private val listener: Listener) {
     var levels: List<Level> = levels
         private set
     var testMode = false
+    /** How many notification sounds lead into the new blinds (one per second); set from the chosen sound. */
+    var knocks = 3
     var idx = 0
         private set
     var running = false
@@ -32,6 +34,9 @@ class TimerEngine(levels: List<Level>, private val listener: Listener) {
     private var lastSec = 0
 
     fun durationMs(i: Int): Long = if (testMode) TEST_SECONDS * 1000L else levels[i].minutes * 60_000L
+
+    /** When the spoken heads-up comes: 1:00 left, or 0:20 in test mode (levels are only 30 s there). */
+    val warnAt: Int get() = if (testMode) 20 else 60
 
     val current: Level get() = levels[idx]
     val next: Level? get() = levels.getOrNull(idx + 1)
@@ -162,14 +167,13 @@ class TimerEngine(levels: List<Level>, private val listener: Listener) {
 
     private fun onSecond(s: Int) {
         val nx = next ?: return
-        if (s == 60 && durationMs(idx) > 60_000L) listener.onWarning(current, nx)
-        if (s in 1..KNOCKS) listener.onCountdown(s)
+        if (s == warnAt && durationMs(idx) > warnAt * 1000L) listener.onWarning(current, nx)
+        if (s in 1..knocks) listener.onCountdown(s)
     }
 
     companion object {
-        const val TEST_SECONDS = 75
-        /** How many knocks lead into the new blinds (one per second). */
-        const val KNOCKS = 3
+        const val TEST_SECONDS = 30
+
         fun ceilSec(ms: Long): Int = (-Math.floorDiv(-ms, 1000L)).toInt()
     }
 }

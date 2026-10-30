@@ -148,13 +148,18 @@ class TimerEngineTest {
         assertFalse(e.running)
     }
 
-    @Test fun testModeLevelsAre75Seconds() {
+    @Test fun testModeLevelsAre30Seconds() {
         val r = Rec()
         val e = TimerEngine(Lineup.DEFAULT, r)
         e.testMode = true
         e.resetLevel(0)
         e.start(0)
-        run(e, 0, 75_500)
+        assertEquals(30, e.secondsLeft(0))
+        run(e, 0, 9_900)
+        assertTrue(r.log.isEmpty())
+        e.update(10_000)                      // 0:20 left -> heads-up
+        assertEquals(listOf("warn 2 – 4"), r.log)
+        run(e, 10_100, 30_500)
         assertEquals(listOf("warn 2 – 4", "knock 3", "knock 2", "knock 1", "now 2 – 4"), r.log)
     }
 
@@ -206,5 +211,17 @@ class TimerEngineTest {
         assertEquals(20 * 60, e.secondsLeft(21 * 60_000L))
         e.start(21 * 60_000L)
         assertTrue(e.running)
+    }
+
+    @Test fun soundCountFollowsChosenSound() {
+        for (n in listOf(1, 2, 5)) {
+            val r = Rec()
+            val e = TimerEngine(Lineup.DEFAULT, r)
+            e.knocks = n
+            e.start(0)
+            run(e, 0, 20 * 60_000L + 500)
+            val expect = listOf("warn 2 – 4") + (n downTo 1).map { "knock $it" } + listOf("now 2 – 4")
+            assertEquals(expect, r.log)
+        }
     }
 }

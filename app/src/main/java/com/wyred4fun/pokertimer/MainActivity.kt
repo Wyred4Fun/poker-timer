@@ -22,6 +22,7 @@ import android.widget.Toast
 class MainActivity : Activity(), TimerEngine.Listener {
 
     private lateinit var ui: Ui
+    private var themeShown = ""
     private lateinit var engine: TimerEngine
     private val handler = Handler(Looper.getMainLooper())
 
@@ -37,14 +38,24 @@ class MainActivity : Activity(), TimerEngine.Listener {
     private lateinit var progress: ProgressBarView
     private lateinit var playBtn: TextView
     private lateinit var stopBtn: TextView
+    private lateinit var resetAllBtn: TextView
+    private lateinit var chipsRow: LinearLayout
+    private lateinit var sbChip: ChipView
+    private lateinit var bbChip: ChipView
+    private var useChips = true
 
     private var flashUntil = 0L
     private var confirmStopUntil = 0L
     private var backPressedAt = 0L
+    /** Last time the remote was pressed on this screen. */
+    private var lastKeyAt = 0L
+    private var resumed = false
 
     private val ticker = object : Runnable {
         override fun run() {
+            engine.knocks = Announcer.knockHits
             engine.update(SystemClock.elapsedRealtime())
+            snapBackIfIdle()
             render()
             handler.postDelayed(this, 100)
         }
@@ -54,6 +65,8 @@ class MainActivity : Activity(), TimerEngine.Listener {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         Announcer.init(this)
+        Theme.apply(Prefs.theme(this)); themeShown = Prefs.theme(this)
+        useChips = Prefs.chips(this)
         ui = Ui(this)
         engine = TimerEngine(Lineup.load(this), this)
         live = engine
@@ -65,6 +78,10 @@ class MainActivity : Activity(), TimerEngine.Listener {
 
     override fun onResume() {
         super.onResume()
+        if (Prefs.theme(this) != themeShown) { recreate(); return }
+        useChips = Prefs.chips(this)
+        resumed = true
+        lastKeyAt = SystemClock.elapsedRealtime()
         // pick up any changes made on the Setup screen
         val now = SystemClock.elapsedRealtime()
         val test = Prefs.testMode(this)
@@ -79,6 +96,7 @@ class MainActivity : Activity(), TimerEngine.Listener {
 
     override fun onPause() {
         super.onPause()
+        resumed = false
         // the clock (and its sounds) keep going while Setup is open
         saveState()
     }
@@ -93,16 +111,18 @@ class MainActivity : Activity(), TimerEngine.Listener {
     companion object {
         /** The running clock, so Setup can apply changes to it straight away. */
         var live: TimerEngine? = null
+        const val IDLE_SNAP_MS = 90_000L
     }
 
     // ---------- the clock's events ----------
 
     override fun onWarning(current: Level, next: Level) {
         Announcer.chime()
+        val inTime = if (engine.testMode) "in twenty seconds" else "in one minute"
         val msg = when {
-            current.isBreak -> "Attention players. The break ends in one minute. Please head back to the table."
-            next.isBreak -> "Attention players. Break starts in one minute."
-            else -> "Attention players. Blinds will be going up in one minute."
+            current.isBreak -> "Attention players. The break ends $inTime. Please head back to the table."
+            next.isBreak -> "Attention players. Break starts $inTime."
+            else -> "Attention players. Blinds will be going up $inTime."
         }
         Announcer.say(msg, 1500)
     }
@@ -154,7 +174,19 @@ class MainActivity : Activity(), TimerEngine.Listener {
         render()
     }
 
+    /** Stop: clock stopped and this level back to its full time (Start begins it again). */
     private fun stop() {
+        val now = SystemClock.elapsedRealtime()
+        Announcer.hush()
+        engine.pause(now)
+        engine.resetLevel(now)
+        flashUntil = 0
+        saveState()
+        render()
+    }
+
+    /** Reset tournament (press twice): back to Level 1, clock stopped. */
+    private fun resetTournament() {
         val now = SystemClock.elapsedRealtime()
         if (now > confirmStopUntil) {
             confirmStopUntil = now + 4000
@@ -167,6 +199,18 @@ class MainActivity : Activity(), TimerEngine.Listener {
         flashUntil = 0
         saveState()
         render()
+    }
+
+    /** Any remote press counts as "touched" (checked before the buttons see it). */
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        lastKeyAt = SystemClock.elapsedRealtime()
+        return super.dispatchKeyEvent(event)
+    }
+
+    /** After 90 seconds without the remote, put the highlight back on Start/Pause. */
+    private fun snapBackIfIdle() {
+        if (!resumed || playBtn.isFocused) return
+        if (SystemClock.elapsedRealtime() - lastKeyAt >= IDLE_SNAP_MS) playBtn.requestFocus()
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
@@ -241,10 +285,15 @@ class MainActivity : Activity(), TimerEngine.Listener {
             set(centerLabel, "BLINDS")
             set(bigText, cur.blindsText); bigText.setTextColor(C.CREAM)
         }
+        // blinds drawn inside two poker chips (Setup > Blinds in chips)
+        val chips = useChips && !cur.isBreak
+        bigText.visibility = if (chips) View.GONE else View.VISIBLE
+        chipsRow.visibility = if (chips) View.VISIBLE else View.GONE
+        if (chips) { sbChip.value = cur.sb.toString(); bbChip.value = cur.bb.toString() }
         set(timerText, "%d:%02d".format(s / 60, s % 60))
 
-        val counting = nx != null && s in 1..TimerEngine.KNOCKS
-        val warning = nx != null && s in (TimerEngine.KNOCKS + 1)..60 && engine.durationMs(engine.idx) > 60_000L
+        val counting = nx != null && s in 1..engine.knocks
+        val warning = nx != null && s in (engine.knocks + 1)..engine.warnAt && engine.durationMs(engine.idx) > engine.warnAt * 1000L
         val flash = now < flashUntil && !warning && !counting
         timerText.setTextColor(if (counting) C.ORANGE else if (warning) C.GOLD else C.CREAM)
 
@@ -258,9 +307,9 @@ class MainActivity : Activity(), TimerEngine.Listener {
             warning -> {
                 showBanner(C.GOLD, C.GOLD_INK)
                 set(bannerText, when {
-                    cur.isBreak -> "Break ends in 1 minute — back to the table"
-                    nx!!.isBreak -> "Attention players — break starts in 1 minute"
-                    else -> "Attention players — blinds go up to ${nx.blindsText} in 1 minute"
+                    cur.isBreak -> "Break ends in ${if (engine.testMode) "20 seconds" else "1 minute"} — back to the table"
+                    nx!!.isBreak -> "Attention players — break starts in ${if (engine.testMode) "20 seconds" else "1 minute"}"
+                    else -> "Attention players — blinds go up to ${nx.blindsText} in ${if (engine.testMode) "20 seconds" else "1 minute"}"
                 })
                 bannerText.typeface = ui.black; bannerText.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, 44f * ui.scale)
                 bannerNum.visibility = View.GONE
@@ -287,10 +336,10 @@ class MainActivity : Activity(), TimerEngine.Listener {
             ui.icon(playBtn, if (engine.running) Icon.PAUSE else Icon.PLAY, C.GOLD_INK)
         }
         val confirming = now < confirmStopUntil
-        set(stopBtn, if (confirming) "Press again to stop" else "Stop")
-        if (stopBtn.tag != confirming) {
-            stopBtn.tag = confirming
-            stopBtn.background = if (confirming) ui.pillBg(C.STOP_BG, C.ORANGE, C.STOP_BG, C.ORANGE)
+        set(resetAllBtn, if (confirming) "Press again to reset" else "Reset tournament")
+        if (resetAllBtn.tag != confirming) {
+            resetAllBtn.tag = confirming
+            resetAllBtn.background = if (confirming) ui.pillBg(C.STOP_BG, C.ORANGE, C.STOP_BG, C.ORANGE)
             else ui.pillBg(C.PANEL, C.EDGE, C.PANEL_HI, C.GOLD)
         }
     }
@@ -336,6 +385,16 @@ class MainActivity : Activity(), TimerEngine.Listener {
         timerText = ui.text(176f, C.CREAM, ui.bebas, 0.06f)
         center.addView(centerLabel, ui.lp(ui.WRAP, ui.WRAP))
         center.addView(bigText, ui.lp(ui.WRAP, ui.WRAP).apply { topMargin = ui.px(4) })
+        chipsRow = ui.row().apply { gravity = Gravity.CENTER; visibility = View.GONE }
+        fun chipCol(label: String, chip: ChipView): LinearLayout = ui.col().apply {
+            gravity = Gravity.CENTER_HORIZONTAL
+            addView(chip, ui.lp(ui.px(320), ui.px(320)))
+            addView(ui.text(24f, C.MUTED, ui.bold, 0.24f).apply { text = label }, ui.lp(ui.WRAP, ui.WRAP).apply { topMargin = ui.px(8) })
+        }
+        sbChip = ChipView(this, ui); bbChip = ChipView(this, ui)
+        chipsRow.addView(chipCol("SMALL", sbChip))
+        chipsRow.addView(chipCol("BIG", bbChip), ui.lp(ui.WRAP, ui.WRAP).apply { leftMargin = ui.px(70) })
+        center.addView(chipsRow, ui.lp(ui.WRAP, ui.WRAP).apply { topMargin = ui.px(10); bottomMargin = ui.px(44) })
         center.addView(timerText, ui.lp(ui.WRAP, ui.WRAP).apply { topMargin = ui.px(-34) })
         body.addView(center, ui.lp(ui.MATCH, 0, 1f))
 
@@ -369,7 +428,8 @@ class MainActivity : Activity(), TimerEngine.Listener {
             ui.icon(this, Icon.SLIDERS, C.CREAM)
             setOnClickListener { startActivity(Intent(this@MainActivity, SetupActivity::class.java)) }
         }
-        for ((i, b) in listOf(back, playBtn, reset, skip, stopBtn).withIndex()) {
+        resetAllBtn = ui.button("Reset tournament").apply { ui.icon(this, Icon.RESET, C.CREAM, 26f); setOnClickListener { resetTournament() } }
+        for ((i, b) in listOf(back, playBtn, reset, skip, stopBtn, resetAllBtn).withIndex()) {
             controls.addView(b, (b.layoutParams as LinearLayout.LayoutParams).apply { if (i > 0) leftMargin = ui.px(16) })
         }
         controls.addView(View(this), ui.lp(0, 1, 1f))
