@@ -245,6 +245,21 @@ class TimerEngineTest {
         assertEquals(19 * 60, e.secondsLeft(60_000))
     }
 
+    @Test fun movingTheCurrentRowKeepsTheClockOnIt() {
+        val e = TimerEngine(Lineup.DEFAULT, Rec())
+        e.goTo(2, 0); e.start(0)                  // 3-6, the break is below it
+        val swapped = Lineup.DEFAULT.toMutableList().also { val a = it[2]; it[2] = it[3]; it[3] = a }
+        e.setLevels(swapped, 60_000, removedBefore = 2 - 3)   // 3-6 moved down one
+        assertEquals(3, e.idx)
+        assertEquals("3 – 6", e.current.blindsText)
+        assertEquals(19 * 60, e.secondsLeft(60_000))
+        // the break moved up past the level we are on: still on 3-6, now one row lower
+        val e2 = TimerEngine(Lineup.DEFAULT, Rec())
+        e2.goTo(2, 0); e2.start(0)
+        e2.setLevels(swapped, 60_000, removedBefore = 2 - 3)
+        assertEquals("3 – 6", e2.current.blindsText)
+    }
+
     @Test fun addingLevelAfterFinishCarriesOn() {
         val e = TimerEngine(Lineup.DEFAULT, Rec())
         e.carryOn = false

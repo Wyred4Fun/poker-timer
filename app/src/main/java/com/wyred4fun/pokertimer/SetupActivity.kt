@@ -40,10 +40,13 @@ class SetupActivity : Activity() {
 
     private companion object {
         // column widths on the 1920-wide drawing
-        const val COL_LABEL = 180
-        const val COL_GROUP = 250
-        const val COL_BB = 150
-        const val GAP = 20
+        const val COL_LABEL = 160
+        const val COL_GROUP = 230
+        const val COL_BB = 130
+        const val GAP = 16
+        /** The round buttons at the end of each row: move up, move down, remove. */
+        const val ROW_BTN = 52
+        const val ROW_BTN_GAP = 6
         /** After changing the theme the screen is redrawn; keep the highlight on Theme. */
         var focusThemeAfterRedraw = false
     }
@@ -60,18 +63,35 @@ class SetupActivity : Activity() {
     }
 
     /** Save, and hand the new lineup to the running clock right away. */
-    private fun save(removedAt: Int = -1) {
+    private fun save(removedAt: Int = -1, moved: Pair<Int, Int>? = null) {
         Lineup.save(this, levels)
         MainActivity.live?.let { e ->
             val now = SystemClock.elapsedRealtime()
             e.update(now)
-            e.setLevels(ArrayList(levels), now, if (removedAt in 0 until e.idx) 1 else 0)
+            // keep the clock on the same level when rows in front of it are removed or moved
+            var shift = if (removedAt in 0 until e.idx) 1 else 0
+            if (moved != null) {
+                val (from, to) = moved
+                if (e.idx == from) shift = from - to else if (e.idx == to) shift = to - from
+            }
+            e.setLevels(ArrayList(levels), now, shift)
         }
+    }
+
+    /** Swap row [i] with the one above (dir -1) or below (dir +1); the highlight follows the row. */
+    private fun moveRow(i: Int, dir: Int) {
+        val j = i + dir
+        if (j < 0 || j >= levels.size) return
+        val a = levels[i]; levels[i] = levels[j]; levels[j] = a
+        deleteArmedRow = -1
+        save(moved = i to j)
+        rebuildList(j, if (dir < 0) 0 else 1)
     }
 
     // ---------- the list of levels ----------
 
-    private fun rebuildList(focusRow: Int = -1) {
+    /** [focusBtn]: 0 = move up, 1 = move down, 2 = remove. */
+    private fun rebuildList(focusRow: Int = -1, focusBtn: Int = 2) {
         listCol.removeAllViews()
         var n = 0
         var focusTarget: View? = null
@@ -93,19 +113,23 @@ class SetupActivity : Activity() {
             }
             row.addView(stepper(i, isMinutes = true, lv.minutes) {}, groupLp())
             row.addView(View(this), ui.lp(0, 1, 1f))
-            val del = ui.button("").apply {
-                setPadding(0, 0, 0, 0)
+            fun roundBtn(icon: Icon, what: String, click: (TextView) -> Unit) = ui.button("").apply {
                 background = ui.pillBg(Color.TRANSPARENT, C.EDGE, C.PANEL_HI, C.GOLD, 30f)
-                val d = IconDrawable(Icon.CROSS, C.MUTED)
-                d.setBounds(0, 0, ui.px(26), ui.px(26))
+                val d = IconDrawable(icon, C.MUTED)
+                d.setBounds(0, 0, ui.px(28), ui.px(28))
                 setCompoundDrawables(d, null, null, null)
-                setPadding(ui.px(17), 0, 0, 0)
-                contentDescription = "Remove this row"
-                setOnClickListener { deletePressed(i, this) }
+                setPadding(ui.px(12), 0, 0, 0)
+                contentDescription = what
+                setOnClickListener { click(this) }
             }
-            row.addView(del, ui.lp(ui.px(60), ui.px(60)))
+            val up = roundBtn(Icon.UP, "Move this row up") { moveRow(i, -1) }
+            val down = roundBtn(Icon.DOWN, "Move this row down") { moveRow(i, +1) }
+            val del = roundBtn(Icon.CROSS, "Remove this row") { deletePressed(i, it) }
+            row.addView(up, ui.lp(ui.px(ROW_BTN), ui.px(ROW_BTN)).apply { leftMargin = ui.px(12) })
+            row.addView(down, ui.lp(ui.px(ROW_BTN), ui.px(ROW_BTN)).apply { leftMargin = ui.px(ROW_BTN_GAP) })
+            row.addView(del, ui.lp(ui.px(ROW_BTN), ui.px(ROW_BTN)).apply { leftMargin = ui.px(12) })
             listCol.addView(row, ui.lp(ui.MATCH, ui.px(84)).apply { topMargin = if (i == 0) 0 else ui.px(10) })
-            if (i == focusRow) focusTarget = del
+            if (i == focusRow) focusTarget = when (focusBtn) { 0 -> up; 1 -> down; else -> del }
         }
         focusTarget?.requestFocus()
     }
@@ -448,7 +472,7 @@ class SetupActivity : Activity() {
         body.addView(header, ui.lp(ui.MATCH, ui.WRAP))
 
         body.addView(ui.text(26f, C.MUTED, ui.bold).apply {
-            text = "Use \u2212 and + to change the small blind and the minutes  \u00B7  the big blind is always twice the small blind"
+            text = "Use \u2212 and + to change the small blind and the minutes  \u00B7  the big blind is always twice the small blind  \u00B7  \u25B2 \u25BC move a row"
         }, ui.lp(ui.WRAP, ui.WRAP).apply { topMargin = ui.px(18) })
 
         val main = ui.row()
