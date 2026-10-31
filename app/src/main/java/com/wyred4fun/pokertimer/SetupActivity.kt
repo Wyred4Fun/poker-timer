@@ -1,6 +1,7 @@
 package com.wyred4fun.pokertimer
 
 import android.app.Activity
+import android.app.AlertDialog
 import android.content.Intent
 import android.graphics.Color
 import android.net.Uri
@@ -373,6 +374,37 @@ class SetupActivity : Activity() {
         Toast.makeText(this, "Lineup reset", Toast.LENGTH_SHORT).show()
     }
 
+    // ---------- saved lineups ----------
+
+    private fun dialog() = AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+
+    /** Pick one of the saved spots, then save the lineup there or load it. */
+    private fun savedLineups() {
+        val names = (1..Lineup.SLOTS).map { n ->
+            val l = Lineup.slot(this, n)
+            "Lineup $n   " + (if (l == null) "(empty)" else Lineup.summary(l))
+        }.toTypedArray()
+        dialog().setTitle("Saved lineups").setItems(names) { _, which -> slotChosen(which + 1) }
+            .setNegativeButton("Cancel", null).show()
+    }
+
+    private fun slotChosen(n: Int) {
+        val saved = Lineup.slot(this, n)
+        val choices = ArrayList<String>()
+        if (saved != null) choices.add("Load lineup $n  (${Lineup.summary(saved)})")
+        choices.add(if (saved == null) "Save the lineup on screen as lineup $n" else "Replace lineup $n with the lineup on screen")
+        dialog().setTitle("Lineup $n").setItems(choices.toTypedArray()) { _, which ->
+            if (saved != null && which == 0) {
+                levels.clear(); levels.addAll(saved)
+                save(); rebuildList()
+                Toast.makeText(this, "Lineup $n loaded", Toast.LENGTH_SHORT).show()
+            } else {
+                Lineup.saveSlot(this, n, levels)
+                Toast.makeText(this, "Saved as lineup $n", Toast.LENGTH_SHORT).show()
+            }
+        }.setNegativeButton("Cancel", null).show()
+    }
+
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
         return super.onKeyDown(keyCode, event)
     }
@@ -445,6 +477,8 @@ class SetupActivity : Activity() {
         val addBreakBtn = ui.button("Add break", height = 68f).apply { ui.icon(this, Icon.PLUS, C.CREAM, 26f); setOnClickListener { addBreak() } }
         adds.addView(addLevelBtn)
         adds.addView(addBreakBtn, (addBreakBtn.layoutParams as LinearLayout.LayoutParams).apply { leftMargin = ui.px(16) })
+        val savedBtn = ui.button("Saved lineups", height = 68f).apply { setOnClickListener { savedLineups() } }
+        adds.addView(savedBtn, (savedBtn.layoutParams as LinearLayout.LayoutParams).apply { leftMargin = ui.px(16) })
         // lower right of the lineup panel: Reset (back to my lineup), then Done
         adds.addView(View(this), ui.lp(0, 1, 1f))
         restoreBtn = ui.button("Reset", height = 68f).apply {

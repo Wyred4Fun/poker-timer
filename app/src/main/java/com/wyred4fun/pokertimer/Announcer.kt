@@ -7,6 +7,8 @@ import android.media.AudioTrack
 import android.os.Handler
 import android.os.Looper
 import android.speech.tts.TextToSpeech
+import android.speech.tts.UtteranceProgressListener
+import java.io.File
 import java.util.Locale
 import kotlin.math.PI
 import kotlin.math.exp
@@ -42,6 +44,12 @@ object Announcer {
                         val r = it.setLanguage(Locale.US)
                         ttsReady = r != TextToSpeech.LANG_MISSING_DATA && r != TextToSpeech.LANG_NOT_SUPPORTED
                         it.setSpeechRate(0.92f)
+                        it.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+                            override fun onStart(id: String?) {}
+                            override fun onError(id: String?) {}
+                            override fun onDone(id: String?) { prepared(id) }
+                        })
+                        prepare(DEMO_TEXT)
                     }
                 }
             }
@@ -106,10 +114,53 @@ object Announcer {
         if (delayMs > 0) main.postDelayed(r, delayMs) else r.run()
     }
 
-    /** Stop anything waiting to be said, and anything being said. */
+    /** Stop anything waiting to be said, and anything being said (and the countdown stream). */
     fun hush() {
         main.removeCallbacksAndMessages(null)
+        Countdown.cancel()
         try { tts?.stop() } catch (e: Exception) {}
+    }
+
+    // ---------- announcements made ahead of time ----------
+    // The voice can take a few seconds to start speaking. So the "blinds have now changed"
+    // sentence is turned into sound well before it is needed, and the countdown stream plays it
+    // the instant the level changes, right after the last hit.
+
+    const val DEMO_TEXT = "Attention players. The blinds have now changed to 2 and 4."
+    private val made = HashMap<String, Pair<ShortArray, Int>>()   // sentence -> samples, rate
+    private val asked = HashMap<String, String>()                 // utterance id -> sentence
+    private var serial = 0
+
+    /** Start turning [text] into sound in the background (does nothing if it is already done or under way). */
+    fun prepare(text: String) {
+        val ctx = app ?: return
+        val t = tts ?: return
+        if (!ttsReady || voiceMode() == Prefs.VOICE_OFF) return
+        synchronized(made) {
+            if (made.containsKey(text) || asked.containsValue(text)) return
+            if (made.size > 8) made.clear()
+            val id = "prep" + (++serial)
+            asked[id] = text
+            val f = File(ctx.cacheDir, "$id.wav")
+            val ok = try { t.synthesizeToFile(text, android.os.Bundle(), f, id) == TextToSpeech.SUCCESS } catch (e: Exception) { false }
+            if (!ok) asked.remove(id)
+        }
+    }
+
+    private fun prepared(id: String?) {
+        val ctx = app ?: return
+        val text = synchronized(made) { asked.remove(id ?: return) } ?: return
+        val f = File(ctx.cacheDir, "$id.wav")
+        val wav = try { parseWav(f.readBytes()) } catch (e: Exception) { null }
+        f.delete()
+        if (wav != null) synchronized(made) { made[text] = wav }
+    }
+
+    /** The sentence as sound at [rate] (ready to drop into the countdown stream), or null if not ready yet. */
+    fun preparedSpeech(text: String, rate: Int): ShortArray? {
+        if (voiceMode() == Prefs.VOICE_OFF) return null
+        val w = synchronized(made) { made[text] } ?: return null
+        return Countdown.Plan.resample(w.first, w.second, rate)
     }
 
     /** The full sequence, for the Test Sounds button. */
@@ -118,10 +169,10 @@ object Announcer {
         chime()
         val gap = if (warningWords) 6000L else 3000L
         if (warningWords) later(1500) { say("Attention players. Blinds will be going up in one minute.") }
-        knockPcm?.let { (pcm, rate) ->
-            Countdown.start(android.os.SystemClock.elapsedRealtime() + gap + knockHits * 1000L, knockHits, pcm, rate, preview = true)
-        }
-        later(gap + knockHits * 1000L + 150L) { say("Attention players. The blinds have now changed to 2 and 4.") }
+        val wav = knockPcm
+        val speech = wav?.let { preparedSpeech(DEMO_TEXT, it.second) }
+        if (wav != null) Countdown.start(android.os.SystemClock.elapsedRealtime() + gap + knockHits * 1000L, knockHits, wav.first, wav.second, preview = true, tail = speech)
+        if (speech == null) later(gap + knockHits * 1000L) { say(DEMO_TEXT) }
     }
 
     private fun play(t: AudioTrack?) {
@@ -133,26 +184,41 @@ object Announcer {
         } catch (e: Exception) {}
     }
 
-    /** Reads a mono 16-bit WAV from res/raw: the samples and their sample rate. */
+    /** Reads a 16-bit WAV from res/raw: the samples (mono) and their sample rate. */
     private fun loadWav(ctx: Context, resId: Int): Pair<ShortArray, Int>? = try {
-        val b = ctx.resources.openRawResource(resId).use { it.readBytes() }
-        fun le32(i: Int) = (b[i].toInt() and 0xff) or ((b[i + 1].toInt() and 0xff) shl 8) or
-            ((b[i + 2].toInt() and 0xff) shl 16) or ((b[i + 3].toInt() and 0xff) shl 24)
-        val rate = le32(24)
+        parseWav(ctx.resources.openRawResource(resId).use { it.readBytes() })
+    } catch (e: Exception) {
+        null
+    }
+
+    /** A 16-bit PCM WAV file -> mono samples and sample rate (stereo is mixed down). */
+    fun parseWav(b: ByteArray): Pair<ShortArray, Int>? {
+        fun le16(i: Int) = (b[i].toInt() and 0xff) or ((b[i + 1].toInt() and 0xff) shl 8)
+        fun le32(i: Int) = le16(i) or (le16(i + 2) shl 16)
+        if (b.size < 44 || String(b, 0, 4, Charsets.US_ASCII) != "RIFF") return null
+        var rate = 0; var channels = 1; var bits = 16
         var p = 12
-        var data = -1; var len = 0
         while (p + 8 <= b.size) {
             val id = String(b, p, 4, Charsets.US_ASCII)
             val size = le32(p + 4)
-            if (id == "data") { data = p + 8; len = minOf(size, b.size - data); break }
+            if (id == "fmt ") { channels = le16(p + 10); rate = le32(p + 12); bits = le16(p + 22) }
+            if (id == "data") {
+                if (rate <= 0 || bits != 16 || channels < 1) return null
+                val data = p + 8
+                val len = minOf(size, b.size - data)
+                val n = len / (2 * channels)
+                return Pair(ShortArray(n) { f ->
+                    var sum = 0
+                    for (c in 0 until channels) {
+                        val i = data + 2 * (f * channels + c)
+                        sum += ((b[i].toInt() and 0xff) or (b[i + 1].toInt() shl 8)).toShort().toInt()
+                    }
+                    (sum / channels).toShort()
+                }, rate)
+            }
             p += 8 + size + (size and 1)
         }
-        if (data < 0) null else {
-            val n = len / 2
-            Pair(ShortArray(n) { ((b[data + 2 * it].toInt() and 0xff) or (b[data + 2 * it + 1].toInt() shl 8)).toShort() }, rate)
-        }
-    } catch (e: Exception) {
-        null
+        return null
     }
 
     private fun makeTrack(pcm: ShortArray, rate: Int): AudioTrack? = try {

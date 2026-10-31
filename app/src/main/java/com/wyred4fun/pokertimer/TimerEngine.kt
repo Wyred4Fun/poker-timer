@@ -21,6 +21,14 @@ class TimerEngine(levels: List<Level>, private val listener: Listener) {
 
     var levels: List<Level> = levels
         private set
+    /** How many rows the lineup itself has; anything after that was added by "keep going". */
+    var lineupSize = levels.size
+        private set
+    /**
+     * Keep going after the last level: another round of the same length, blinds stepping up
+     * the same way they did last time (e.g. 8-16, 9-18, then 10-20, 11-22 ...).
+     */
+    var carryOn = true
     var testMode = false
     /** How many notification sounds lead into the new blinds (one per second: 5, 4, 3, 2, 1). */
     var knocks = COUNTDOWN
@@ -41,7 +49,19 @@ class TimerEngine(levels: List<Level>, private val listener: Listener) {
     val warnAt: Int get() = 60
 
     val current: Level get() = levels[idx]
-    val next: Level? get() = levels.getOrNull(idx + 1)
+    val next: Level? get() = levels.getOrNull(idx + 1) ?: if (carryOn) extraAfter(levels) else null
+
+    /** True for the rounds added after the lineup ran out. */
+    fun isExtra(i: Int = idx) = i >= lineupSize
+
+    /** Add "keep going" rounds until row [i] exists. */
+    private fun extendTo(i: Int) {
+        if (!carryOn) return
+        while (levels.size <= i) {
+            val x = extraAfter(levels) ?: return
+            levels = levels + x
+        }
+    }
 
     /** Whole seconds shown on the clock (rounded up, so a fresh level shows 20:00). */
     fun secondsLeft(now: Long): Int {
@@ -82,6 +102,7 @@ class TimerEngine(levels: List<Level>, private val listener: Listener) {
 
     /** Jump to a step (Back / Skip). Keeps running if it was running. */
     fun goTo(i: Int, now: Long): Boolean {
+        if (i == levels.size) extendTo(i)
         if (i < 0 || i >= levels.size) return false
         idx = i
         resetLevel(now)
@@ -93,6 +114,7 @@ class TimerEngine(levels: List<Level>, private val listener: Listener) {
         running = false
         finished = false
         idx = 0
+        levels = levels.take(lineupSize)
         remainingMs = durationMs(0)
     }
 
@@ -103,8 +125,11 @@ class TimerEngine(levels: List<Level>, private val listener: Listener) {
     fun setLevels(newLevels: List<Level>, now: Long, removedBefore: Int = 0) {
         update(now) // let a step that ran out move on first
         val left = msLeft(now)
+        val wasExtra = idx >= lineupSize
         levels = newLevels
+        lineupSize = newLevels.size
         idx = (idx - removedBefore).coerceAtLeast(0)
+        if (wasExtra) extendTo(idx)   // on a keep-going round: stay on it
         if (finished && idx < levels.size - 1) {
             // a level was added after the finished final one: carry on with it
             finished = false
@@ -128,6 +153,7 @@ class TimerEngine(levels: List<Level>, private val listener: Listener) {
 
     /** Put back a saved state (after the app was closed). */
     fun restore(index: Int, msLeftAtSave: Long, msSinceSave: Long, wasRunning: Boolean, wasFinished: Boolean, now: Long) {
+        extendTo(index)
         idx = index.coerceIn(0, levels.size - 1)
         finished = wasFinished && idx == levels.size - 1
         remainingMs = msLeftAtSave.coerceIn(0, durationMs(idx))
@@ -155,6 +181,7 @@ class TimerEngine(levels: List<Level>, private val listener: Listener) {
             if (lastSec > 0) break
             val nx = next
             if (nx != null) {
+                extendTo(idx + 1)
                 idx += 1
                 endAt += durationMs(idx)
                 lastSec = ceilSec(durationMs(idx))
@@ -185,5 +212,15 @@ class TimerEngine(levels: List<Level>, private val listener: Listener) {
         const val BREAK_WARN = 180
 
         fun ceilSec(ms: Long): Int = (-Math.floorDiv(-ms, 1000L)).toInt()
+
+        /** The round that follows when the lineup runs out: same minutes as the last level, blinds up by the last step. */
+        fun extraAfter(levels: List<Level>): Level? {
+            val plays = levels.filter { !it.isBreak }
+            val last = plays.lastOrNull() ?: return null
+            val prev = plays.getOrNull(plays.size - 2)
+            val step = if (prev != null && last.sb > prev.sb) last.sb - prev.sb else maxOf(1, last.sb)
+            val sb = last.sb + step
+            return Level(sb, sb * 2, last.minutes)
+        }
     }
 }

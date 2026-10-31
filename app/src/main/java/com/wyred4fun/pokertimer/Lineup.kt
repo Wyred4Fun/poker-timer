@@ -14,18 +14,14 @@ object Lineup {
         Level(1, 2, 20),
         Level(2, 4, 20),
         Level(3, 6, 20),
-        Level(4, 8, 20),
         Level(0, 0, 15, isBreak = true),
+        Level(4, 8, 20),
         Level(5, 10, 20),
         Level(6, 12, 20),
+        Level(0, 0, 15, isBreak = true),
         Level(7, 14, 20),
         Level(8, 16, 20),
-        Level(0, 0, 15, isBreak = true),
-        Level(9, 18, 20),
-        Level(10, 20, 20),
-        Level(15, 30, 10),
-        Level(0, 0, 15, isBreak = true),
-        Level(20, 40, 20)
+        Level(9, 18, 15)
     )
 
     private const val PREFS = "poker_timer"
@@ -55,8 +51,29 @@ object Lineup {
         return if (out.any { !it.isBreak }) out else null
     }
 
-    fun load(ctx: Context): List<Level> =
-        decode(ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY, null)) ?: DEFAULT
+    /** The lineup the app used to start with; a box still on it moves to the new one. */
+    private const val OLD_DEFAULT = "1,2,20;2,4,20;3,6,20;4,8,20;B,15;5,10,20;6,12,20;7,14,20;8,16,20;B,15;9,18,20;10,20,20;15,30,10;B,15;20,40,20"
+
+    fun load(ctx: Context): List<Level> {
+        val txt = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY, null)
+        if (txt == OLD_DEFAULT) return DEFAULT
+        return decode(txt) ?: DEFAULT
+    }
+
+    // ---------- saved lineups (Setup > Saved lineups) ----------
+    const val SLOTS = 3
+    fun slot(ctx: Context, n: Int): List<Level>? =
+        decode(ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString("lineup_slot_$n", null))
+    fun saveSlot(ctx: Context, n: Int, levels: List<Level>) {
+        ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString("lineup_slot_$n", encode(levels)).apply()
+    }
+    /** "9 levels, 2 breaks · 1-2 to 9-18" */
+    fun summary(levels: List<Level>): String {
+        val plays = levels.filter { !it.isBreak }
+        val breaks = levels.size - plays.size
+        val range = if (plays.isEmpty()) "" else "  \u00B7  ${plays.first().sb}\u2013${plays.first().bb} to ${plays.last().sb}\u2013${plays.last().bb}"
+        return "${plays.size} level${if (plays.size == 1) "" else "s"}, $breaks break${if (breaks == 1) "" else "s"}$range"
+    }
 
     fun save(ctx: Context, levels: List<Level>) {
         ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(KEY, encode(levels)).apply()

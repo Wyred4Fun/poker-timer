@@ -150,20 +150,40 @@ class MainActivity : Activity(), TimerEngine.Listener {
      */
     private fun syncCountdown(now: Long) {
         val left = engine.msLeft(now)
-        val want = if (engine.running && engine.next != null && Announcer.soundsOn() &&
+        val nx = engine.next
+        // get the "blinds have changed" sentence ready well ahead, so it can start right at 0:00
+        if (engine.running && nx != null && left in 1..30_000L) Announcer.prepare(changeText(nx, engine.idx + 1))
+        val want = if (engine.running && nx != null && Announcer.soundsOn() &&
             left in 1..(TimerEngine.COUNTDOWN * 1000L + 2000L)) engine.endTime else 0L
         if (want == Countdown.aimedAt) return
         if (want == 0L && Countdown.isPreview) return   // let Test sounds / a preview finish
+        if (want == 0L && Countdown.aimedAt in 1..now) {
+            // the level just changed on time: let the stream finish saying the new blinds
+            Countdown.releaseAim(); return
+        }
         Countdown.cancel()
         val wav = Announcer.knockPcm
-        if (want != 0L && wav != null && left > 300) Countdown.start(want, minOf(engine.knocks, ((left - 1) / 1000).toInt()), wav.first, wav.second)
+        if (want != 0L && wav != null && left > 300 && nx != null) {
+            val speech = Announcer.preparedSpeech(changeText(nx, engine.idx + 1), wav.second)
+            Countdown.start(want, minOf(engine.knocks, ((left - 1) / 1000).toInt()), wav.first, wav.second, tail = speech)
+        }
+    }
+
+    /** What is said when step [i] begins. */
+    private fun changeText(lv: Level, i: Int): String = when {
+        lv.isBreak -> "Attention players. Break time. ${lv.minutes} minutes."
+        engine.isExtra(i) -> "Attention players. The blinds are continuing. They are now ${lv.blindsSpoken}."
+        else -> "Attention players. The blinds have now changed to ${lv.blindsSpoken}."
     }
 
     override fun onLevelChanged(now: Level, quiet: Boolean) {
         saveState()
         if (quiet) return
-        flashUntil = SystemClock.elapsedRealtime() + 8000
-        Announcer.say(if (now.isBreak) "Attention players. Break time. ${now.minutes} minutes." else "Attention players. The blinds have now changed to ${now.blindsSpoken}.", 150)
+        val t = SystemClock.elapsedRealtime()
+        flashUntil = t + 8000
+        // already playing inside the countdown stream, right after the last hit?
+        if (Countdown.speechAt != 0L && Math.abs(Countdown.speechAt - t) < 3000) return
+        Announcer.say(changeText(now, engine.idx))
     }
 
     override fun onFinished(quiet: Boolean) {
@@ -301,12 +321,16 @@ class MainActivity : Activity(), TimerEngine.Listener {
         val cur = engine.current
         val nx = engine.next
         val s = engine.secondsLeft(now)
-        val levelCount = engine.levels.count { !it.isBreak }
+        val levelCount = engine.levels.take(engine.lineupSize).count { !it.isBreak }
         val levelNum = engine.levels.take(engine.idx + 1).count { !it.isBreak }
 
         set(topLabel, if (engine.testMode) "POKER NIGHT  ·  TEST MODE" else "POKER NIGHT")
         topLabel.setTextColor(if (engine.testMode) C.ORANGE else C.MUTED)
-        set(levelLabel, if (cur.isBreak) "BREAK" else "LEVEL $levelNum OF $levelCount")
+        set(levelLabel, when {
+            cur.isBreak -> "BREAK"
+            engine.isExtra() -> "LEVEL $levelNum  ·  BLINDS CONTINUING"
+            else -> "LEVEL $levelNum OF $levelCount"
+        })
         set(nextText, when {
             nx == null -> "FINAL LEVEL"
             nx.isBreak -> "${nx.minutes}-MIN BREAK"

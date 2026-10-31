@@ -28,14 +28,22 @@ object Countdown {
     @Volatile var isPreview = false
         private set
 
-    fun start(endAtElapsed: Long, hits: Int, pcm: ShortArray, rate: Int, preview: Boolean = false) {
+    /** The level end whose announcement is inside the stream (0 = none), so it isn't said twice. */
+    @Volatile var speechAt = 0L
+        private set
+
+    /** Let the stream finish what it is playing (the announcement) without aiming at anything any more. */
+    fun releaseAim() { aimedAt = 0L }
+
+    fun start(endAtElapsed: Long, hits: Int, pcm: ShortArray, rate: Int, preview: Boolean = false, tail: ShortArray? = null) {
         val my = ++generation
         aimedAt = endAtElapsed
         isPreview = preview
+        speechAt = if (tail != null && !preview) endAtElapsed else 0L
         // the same moment on the clock the audio system uses (System.nanoTime)
         val endNano = System.nanoTime() + (endAtElapsed - SystemClock.elapsedRealtime()) * 1_000_000L
         val targets = LongArray(hits) { endNano - (hits - it) * 1_000_000_000L }
-        Thread({ run(my, targets, pcm, rate) }, "countdown").start()
+        Thread({ run(my, targets, endNano, pcm, rate, tail) }, "countdown").start()
     }
 
     fun cancel() {
@@ -44,7 +52,7 @@ object Countdown {
         isPreview = false
     }
 
-    private fun run(my: Int, targets: LongArray, pcm: ShortArray, rate: Int) {
+    private fun run(my: Int, targets: LongArray, endNano: Long, pcm: ShortArray, rate: Int, tail: ShortArray?) {
         try { Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO) } catch (e: Exception) {}
         val minBuf = AudioTrack.getMinBufferSize(rate, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT)
         val track = try {
@@ -65,6 +73,7 @@ object Countdown {
             val chunk = rate / 100                        // write 10 ms at a time
             val buf = ShortArray(chunk)
             val starts = LongArray(targets.size) { -1L }  // the frame each hit starts on, once decided
+            var tailStart = -1L                           // the frame the announcement starts on (at 0:00)
             val ts = AudioTimestamp()
             var written = 0L
             var haveStamp = false
@@ -80,12 +89,18 @@ object Countdown {
                         starts[k] = Plan.hitFrame(targets[k], written, presentNano, rate)
                     }
                 }
+                if (tail != null && tailStart < 0 && endNano - presentNano < 400_000_000L) {
+                    tailStart = Plan.hitFrame(endNano, written, presentNano, rate)
+                }
                 java.util.Arrays.fill(buf, 0.toShort())
                 for (k in targets.indices) Plan.mix(buf, written, starts[k], pcm)
+                if (tail != null) Plan.mix(buf, written, tailStart, tail)
                 track.write(buf, 0, chunk)                // blocks: keeps us in step with playback
                 written += chunk
-                val last = starts.last()
-                if (last >= 0 && written > last + pcm.size + rate / 5) break
+                val lastHit = if (starts.isEmpty()) 0L else starts.last()
+                val hitsDone = starts.isEmpty() || (lastHit >= 0 && written > lastHit + pcm.size + rate / 5)
+                val tailDone = tail == null || (tailStart >= 0 && written > tailStart + tail.size + rate / 5)
+                if (hitsDone && tailDone) break
             }
         } catch (e: Exception) {
         } finally {
@@ -103,6 +118,19 @@ object Countdown {
         }
 
         /** Add the part of a hit starting at frame [start] that falls in this chunk (chunk starts at frame [written]). */
+        /** Change the sample rate of a sound (straight-line in-between values; fine for speech). */
+        fun resample(src: ShortArray, from: Int, to: Int): ShortArray {
+            if (from == to || src.isEmpty()) return src
+            val n = (src.size.toLong() * to / from).toInt()
+            return ShortArray(n) { i ->
+                val pos = i.toDouble() * from / to
+                val a = pos.toInt().coerceAtMost(src.size - 1)
+                val b = (a + 1).coerceAtMost(src.size - 1)
+                val frac = pos - a
+                (src[a] * (1 - frac) + src[b] * frac).toInt().toShort()
+            }
+        }
+
         fun mix(buf: ShortArray, written: Long, start: Long, pcm: ShortArray) {
             if (start < 0) return
             val from = maxOf(written, start)
