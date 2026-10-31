@@ -263,8 +263,8 @@ class SetupActivity : Activity() {
         toggleText(startupBtn, if (on) "Open at startup:  On" else "Open at startup:  Off", on)
         val pre = PreGame.enabled(this)
         if (::preGameBtn.isInitialized) toggleText(preGameBtn, if (pre) "Friday countdown:  On" else "Friday countdown:  Off", pre)
-        // both open the app by themselves, which needs "Display over other apps" on Android 10 and later
-        val needs = (on || pre) && !startupAllowed()
+        // opening at startup needs "Display over other apps" on Android 10 and later
+        val needs = on && !startupAllowed()
         startupNote.visibility = if (needs || on) View.VISIBLE else View.GONE
         if (!needs && on) {
             // what the last startup did (see BootReceiver.Log)
@@ -592,6 +592,23 @@ class SetupActivity : Activity() {
             setOnClickListener { finish() }
         }
         val doneRow = ui.row().apply { gravity = Gravity.END }
+        if (BuildConfig.CLUB) {
+            // leave the timer and run the club billboard (slides all week, the countdown Thursday 5 PM to Friday 7:30 PM)
+            val activate = ui.button("Activate billboard", height = 76f, textSize = 28f).apply {
+                setPadding(ui.px(36), 0, ui.px(36), 0)
+                setOnClickListener {
+                    if (MainActivity.live?.running == true) {
+                        Toast.makeText(this@SetupActivity, "Pause the timer first, then press Activate billboard", Toast.LENGTH_LONG).show()
+                        return@setOnClickListener
+                    }
+                    Prefs.set(this@SetupActivity, "billboard", true)
+                    startActivity(Intent(this@SetupActivity, MainActivity::class.java)
+                        .putExtra("activateBillboard", true)
+                        .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP))
+                }
+            }
+            doneRow.addView(activate, (activate.layoutParams as LinearLayout.LayoutParams).apply { rightMargin = ui.px(20) })
+        }
         doneRow.addView(done)
         rightSide.addView(doneRow, ui.lp(ui.MATCH, ui.WRAP).apply { topMargin = ui.px(18) })
         val rightScroll = ScrollView(this).apply { isVerticalScrollBarEnabled = false }
@@ -653,7 +670,7 @@ class SetupActivity : Activity() {
         gap(startupBtn, 5)
         startupNote = ui.text(20f, C.MUTED, ui.bold).apply { setSingleLine(true); ellipsize = android.text.TextUtils.TruncateAt.END }
         right.addView(startupNote, ui.lp(ui.MATCH, ui.WRAP).apply { topMargin = ui.px(4) })
-        // Thursday 5 PM to Friday 7:30 PM: the "Poker starts sharp at 7:30" countdown, and the app opens itself Thursday at 5
+        // Thursday 5 PM to Friday 7:30 PM: the "Poker starts sharp at 7:30" countdown shows while the app is open
         preGameBtn = ui.button("Friday countdown", height = 44f, textSize = 28f).apply {
             gravity = Gravity.CENTER_VERTICAL
             setPadding(ui.px(26), 0, ui.px(26), 0)
@@ -661,9 +678,7 @@ class SetupActivity : Activity() {
             setOnClickListener {
                 val nv = !PreGame.enabled(this@SetupActivity)
                 Prefs.set(this@SetupActivity, "preGame", nv)
-                PreGame.schedule(this@SetupActivity)
                 refreshStartup()
-                if (nv && !startupAllowed()) askStartupPermission()
             }
         }
         // the Friday countdown and the slides are only in the Catalpa Club Poker Timer version

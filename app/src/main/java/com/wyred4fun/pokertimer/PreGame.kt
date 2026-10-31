@@ -5,13 +5,13 @@ import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.os.Build
 import java.util.Calendar
 
 /**
  * The Friday night countdown: "Poker starts sharp at 7:30 PM".
  * From Thursday 5:00 PM it fills the screen and counts down to Friday 7:30 PM, then shows
- * "Shuffle up and deal" until Start is pressed (or Friday ends). Thursday at 5:00 PM the app opens by itself.
+ * "Shuffle up and deal" until Start is pressed (or Friday ends). It only appears while the app is
+ * already open on the TV; the app does not open itself for it.
  */
 object PreGame {
     const val SHOW_DAY = Calendar.THURSDAY
@@ -67,34 +67,23 @@ object PreGame {
     fun enabled(ctx: Context) = BuildConfig.CLUB &&
         ctx.getSharedPreferences("poker_timer", Context.MODE_PRIVATE).getBoolean("preGame", true)
 
-    /** Set (or clear) the alarm that opens the app on Thursday at 5:00 PM. */
+    /**
+     * The app no longer opens itself on Thursday. This only clears the Thursday alarm that earlier
+     * builds set, so nothing is left behind (it runs at startup and when Setup changes).
+     */
     fun schedule(ctx: Context) {
         val am = ctx.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
         val pi = PendingIntent.getBroadcast(
             ctx, 7, Intent(ctx, PreGameReceiver::class.java),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-        try {
-            am.cancel(pi)
-            if (!enabled(ctx)) return
-            val at = nextPopUp(clock())
-            if (Build.VERSION.SDK_INT >= 23) am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pi)
-            else am.set(AlarmManager.RTC_WAKEUP, at, pi)
-        } catch (e: Exception) {
-        }
+        try { am.cancel(pi) } catch (e: Exception) {}
     }
 }
 
-/** Thursday 5:00 PM: bring the timer up (it shows the countdown), then set next week's alarm. */
+/** Left in place for any alarm an earlier build set: it does nothing now. */
 class PreGameReceiver : BroadcastReceiver() {
     override fun onReceive(ctx: Context, intent: Intent) {
-        val app = ctx.applicationContext
-        if (PreGame.enabled(app)) {
-            try {
-                app.startActivity(Intent(app, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-            } catch (e: Exception) {
-            }
-        }
-        PreGame.schedule(app)
+        PreGame.schedule(ctx.applicationContext)
     }
 }

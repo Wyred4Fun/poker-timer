@@ -61,6 +61,8 @@ class MainActivity : Activity(), TimerEngine.Listener {
     private var preGamePeekUntil = 0L
     /** "Show the countdown now" (Menu button or Setup > Billboard images): the countdown comes up on any day until a button is pressed. */
     private var forceCountdown = false
+    /** "Activate billboard" (Setup): the slides run whenever the timer isn't, even right after a night that was only paused. Ends when Start is pressed. */
+    private var billboardMode = false
     private var preGameOn = true
     private var backFromSetup = false
     /** The club billboard (slides), shown when poker isn't on. */
@@ -98,6 +100,11 @@ class MainActivity : Activity(), TimerEngine.Listener {
         PreGame.schedule(this)
         setContentView(build())
         playBtn.requestFocus()
+        // started fresh (not brought forward) by Setup's "Activate billboard" or "Show countdown now"
+        if (savedInstanceState == null) {
+            if (intent?.getBooleanExtra("activateBillboard", false) == true) activateBillboard()
+            if (intent?.getBooleanExtra("showCountdown", false) == true) showCountdownNow()
+        }
     }
 
     override fun onResume() {
@@ -105,6 +112,7 @@ class MainActivity : Activity(), TimerEngine.Listener {
         if (Prefs.theme(this) != themeShown) { recreate(); return }
         useChips = Prefs.chips(this)
         preGameOn = PreGame.enabled(this)
+        billboardMode = getSharedPreferences("poker_timer", MODE_PRIVATE).getBoolean("billboardMode", false)
         billboardOn = Billboard.enabled(this)
         resumed = true
         foreground = true
@@ -343,6 +351,20 @@ class MainActivity : Activity(), TimerEngine.Listener {
         super.onNewIntent(intent)
         setIntent(intent)
         if (intent.getBooleanExtra("showCountdown", false)) showCountdownNow()
+        if (intent.getBooleanExtra("activateBillboard", false)) activateBillboard()
+    }
+
+    private fun activateBillboard() {
+        if (!BuildConfig.CLUB || engine.running) return
+        setBillboardMode(true)
+        backFromSetup = false
+        preGamePeekUntil = 0
+        if (::playBtn.isInitialized) render()
+    }
+
+    private fun setBillboardMode(on: Boolean) {
+        billboardMode = on
+        getSharedPreferences("poker_timer", MODE_PRIVATE).edit().putBoolean("billboardMode", on).apply()
     }
 
     private fun showCountdownNow() {
@@ -529,6 +551,7 @@ class MainActivity : Activity(), TimerEngine.Listener {
     private fun renderPreGame(now: Long) {
         if (!::preGame.isInitialized) return
         val wall = PreGame.clock()
+        if (billboardMode && engine.running) setBillboardMode(false)   // poker is on: back to the normal rules
         val aside = now < preGamePeekUntil || !overlaysAllowed()
         val show = !aside && !engine.running &&
             ((preGameOn && PreGame.showing(wall, startedAt, engine.running)) || (forceCountdown && BuildConfig.CLUB))
@@ -541,7 +564,7 @@ class MainActivity : Activity(), TimerEngine.Listener {
             preGame.setLineup(engine.levels)
             preGame.update(wall, timeOfDay(wall), now)
         }
-        val bill = !aside && !show && billboardOn && Billboard.wanted(wall, startedAt, engine.running, engine.finished) && billboardHasSlides(now, wall)
+        val bill = !aside && !show && billboardOn && (billboardMode || Billboard.wanted(wall, startedAt, engine.running, engine.finished)) && !engine.running && billboardHasSlides(now, wall)
         if (bill != billboardShown) {
             billboardShown = bill
             billboard.visibility = if (bill) View.VISIBLE else View.GONE
