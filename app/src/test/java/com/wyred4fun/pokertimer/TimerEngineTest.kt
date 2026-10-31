@@ -92,12 +92,12 @@ class TimerEngineTest {
         assertTrue(e.goTo(1, 0))
         assertEquals("2 – 4", e.current.blindsText)
         e.carryOn = false
-        assertTrue(e.goTo(10, 0))
+        assertTrue(e.goTo(14, 0))
         assertEquals(null, e.next)
-        assertFalse(e.goTo(11, 0))
+        assertFalse(e.goTo(15, 0))
         e.carryOn = true
-        assertTrue(e.goTo(11, 0))          // Skip past the last level: the next keep-going round
-        assertEquals("10 – 20", e.current.blindsText)
+        assertTrue(e.goTo(15, 0))          // Skip past the last level: the next keep-going round
+        assertEquals("25 – 50", e.current.blindsText)
     }
 
     @Test fun stopGoesBackToLevelOne() {
@@ -113,7 +113,7 @@ class TimerEngineTest {
         val r = Rec()
         val e = TimerEngine(Lineup.DEFAULT, r)
         e.carryOn = false
-        e.goTo(10, 0); e.start(0)
+        e.goTo(14, 0); e.start(0)
         run(e, 0, 15 * 60_000L + 1000)
         assertEquals(listOf("finished"), r.log) // no warning or knocks when nothing follows
         assertTrue(e.finished)
@@ -121,41 +121,42 @@ class TimerEngineTest {
         assertEquals(0, e.secondsLeft(30 * 60_000L))
     }
 
-    @Test fun wholeLineupTakes205Minutes() {
-        // 8 levels of 20, two 15-minute breaks, then 9-18 for 15
+    @Test fun wholeLineupTakes250Minutes() {
+        // 6 levels of 20, 6 levels of 15, breaks of 15, 15 and 10
         val r = Rec()
         val e = TimerEngine(Lineup.DEFAULT, r)
         e.carryOn = false
         e.start(0)
-        run(e, 0, 205 * 60_000L - 200)
+        run(e, 0, 250 * 60_000L - 200)
         assertFalse(e.finished)
-        run(e, 205 * 60_000L - 100, 205 * 60_000L + 200)
+        run(e, 250 * 60_000L - 100, 250 * 60_000L + 200)
         assertTrue(e.finished)
-        assertEquals(10, r.log.count { it.startsWith("now") })
-        assertEquals(10, r.log.count { it.startsWith("warn") })
-        assertEquals(10 * 5, r.log.count { it.startsWith("knock") })
+        assertEquals(14, r.log.count { it.startsWith("now") })
+        assertEquals(14, r.log.count { it.startsWith("warn") })   // every level and break that has something after it
+        assertEquals(3, r.log.count { it.startsWith("break over") })
+        assertEquals(14 * 5, r.log.count { it.startsWith("knock") })
     }
 
     @Test fun newDefaultLineup() {
-        assertEquals("1,2,20;2,4,20;3,6,20;B,15;4,8,20;5,10,20;6,12,20;B,15;7,14,20;8,16,20;9,18,15", Lineup.encode(Lineup.DEFAULT))
-        assertEquals("9 levels, 2 breaks  \u00B7  1\u20132 to 9\u201318", Lineup.summary(Lineup.DEFAULT))
+        assertEquals("1,2,20;2,4,20;3,6,20;B,15;4,8,20;5,10,20;B,15;6,12,20;7,14,15;8,16,15;B,10;9,18,15;10,20,15;15,30,15;20,40,15", Lineup.encode(Lineup.DEFAULT))
+        assertEquals("12 levels, 3 breaks  \u00B7  1\u20132 to 20\u201340", Lineup.summary(Lineup.DEFAULT))
     }
 
     @Test fun afterTheLastLevelBlindsKeepGoingEvery15Minutes() {
         val r = Rec()
         val e = TimerEngine(Lineup.DEFAULT, r)
-        e.goTo(10, 0); e.start(0)               // 9-18, the last row, 15 minutes
+        e.goTo(14, 0); e.start(0)               // 20-40, the last row, 15 minutes
         assertFalse(e.isExtra())
         run(e, 0, 15 * 60_000L + 500)
-        assertEquals(listOf("warn 10 – 20", "knock 5", "knock 4", "knock 3", "knock 2", "knock 1", "now 10 – 20"), r.log)
+        assertEquals(listOf("warn 25 – 50", "knock 5", "knock 4", "knock 3", "knock 2", "knock 1", "now 25 – 50"), r.log)
         assertTrue(e.isExtra())
         assertFalse(e.finished)
         assertEquals(15 * 60, e.secondsLeft(15 * 60_000L))
         run(e, 15 * 60_000L + 600, 30 * 60_000L + 500)
-        assertEquals("11 – 22", e.current.blindsText)
+        assertEquals("30 – 60", e.current.blindsText)
         // Setup opened and closed: still on the same round
         e.setLevels(Lineup.DEFAULT, 31 * 60_000L)
-        assertEquals("11 – 22", e.current.blindsText)
+        assertEquals("30 – 60", e.current.blindsText)
         assertEquals(14 * 60, e.secondsLeft(31 * 60_000L))
         // Reset tournament trims the extra rounds off again
         e.stopAll()
@@ -164,9 +165,9 @@ class TimerEngineTest {
 
     @Test fun reopeningOnAKeepGoingRound() {
         val e = TimerEngine(Lineup.DEFAULT, Rec())
-        e.restore(12, 300_000, 0, wasRunning = false, wasFinished = false, now = 0)
-        assertEquals(12, e.idx)
-        assertEquals("11 – 22", e.current.blindsText)
+        e.restore(16, 300_000, 0, wasRunning = false, wasFinished = false, now = 0)
+        assertEquals(16, e.idx)
+        assertEquals("30 – 60", e.current.blindsText)
     }
 
     @Test fun keepGoingStepFollowsTheLastIncrease() {
@@ -308,7 +309,7 @@ class TimerEngineTest {
     @Test fun addingLevelAfterFinishCarriesOn() {
         val e = TimerEngine(Lineup.DEFAULT, Rec())
         e.carryOn = false
-        e.goTo(10, 0); e.start(0)
+        e.goTo(14, 0); e.start(0)
         e.update(15 * 60_000L + 1000)
         assertTrue(e.finished)
         e.setLevels(Lineup.DEFAULT + Level(25, 50, 20), 21 * 60_000L)

@@ -35,6 +35,8 @@ class MainActivity : Activity(), TimerEngine.Listener {
     private var startedAt = 0L
     private lateinit var centerLabel: TextView
     private lateinit var bigText: TextView
+    /** Under BREAK: the blinds when play starts again. */
+    private lateinit var breakNextText: TextView
     private lateinit var timerText: TextView
     private lateinit var banner: LinearLayout
     private lateinit var bannerText: TextView
@@ -118,6 +120,8 @@ class MainActivity : Activity(), TimerEngine.Listener {
     companion object {
         /** The running clock, so Setup can apply changes to it straight away. */
         var live: TimerEngine? = null
+        /** When the night started (wall clock ms, 0 = not started), for Setup's game timer. */
+        var gameStartedAt = 0L
         const val IDLE_SNAP_MS = 90_000L
     }
 
@@ -137,7 +141,7 @@ class MainActivity : Activity(), TimerEngine.Listener {
 
     override fun onBreakEnding(minutesLeft: Int) {
         Announcer.chime()
-        Announcer.say("Attention players. The break is over in $minutesLeft minutes.", 1500)
+        Announcer.say("Attention players. The break is over in $minutesLeft minutes. Please return to your seats soon." + blindsSentence(engine.idx), 1500)
     }
 
     override fun onCountdown(secondsLeft: Int) {
@@ -175,6 +179,21 @@ class MainActivity : Activity(), TimerEngine.Listener {
         engine.isExtra(i) -> "Attention players. The blinds are continuing. They are now ${lv.blindsSpoken}."
         else -> "Attention players. The blinds have now changed to ${lv.blindsSpoken}."
     }
+
+    /** The blinds play goes back to after the break at row [breakIdx] (skips any break right after it). */
+    private fun blindsAfterBreak(breakIdx: Int): Level? {
+        var j = breakIdx + 1
+        while (true) {
+            val lv = engine.levels.getOrNull(j)
+                ?: return if (engine.carryOn) TimerEngine.extraAfter(engine.levels) else null
+            if (!lv.isBreak) return lv
+            j++
+        }
+    }
+
+    /** " When we come back, the blinds will be 4 and 8." (or nothing if no level follows) */
+    private fun blindsSentence(breakIdx: Int): String =
+        blindsAfterBreak(breakIdx)?.let { " When we come back, the blinds will be ${it.blindsSpoken}." } ?: ""
 
     override fun onLevelChanged(now: Level, quiet: Boolean) {
         saveState()
@@ -349,10 +368,17 @@ class MainActivity : Activity(), TimerEngine.Listener {
         if (cur.isBreak) {
             set(centerLabel, "STRETCH YOUR LEGS")
             set(bigText, "BREAK"); bigText.setTextColor(C.GOLD)
+            val after = blindsAfterBreak(engine.idx)
+            set(breakNextText, if (after == null) "" else "NEXT BLINDS  ${after.blindsText}")
         } else {
             set(centerLabel, "BLINDS")
             set(bigText, cur.blindsText); bigText.setTextColor(C.CREAM)
         }
+        val showNext = cur.isBreak && breakNextText.text.isNotEmpty()
+        breakNextText.visibility = if (showNext) View.VISIBLE else View.GONE
+        // a smaller BREAK when the next blinds sit under it, so the clock keeps its room
+        val bigPx = ui.px(if (showNext) 190 else 250).toFloat()
+        if (bigText.textSize != bigPx) bigText.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, bigPx)
         // blinds drawn inside two poker chips (Setup > Blinds in chips)
         val chips = useChips && !cur.isBreak
         bigText.visibility = if (chips) View.GONE else View.VISIBLE
@@ -361,6 +387,7 @@ class MainActivity : Activity(), TimerEngine.Listener {
         set(timerText, "%d:%02d".format(s / 60, s % 60))
         set(clockText, timeOfDay(System.currentTimeMillis()))
         set(startedText, if (startedAt > 0) "STARTED " + timeOfDay(startedAt) else "")
+        gameStartedAt = startedAt
 
         val counting = nx != null && s in 1..engine.knocks
         val warning = nx != null && s in (engine.knocks + 1)..engine.warnAt && engine.durationMs(engine.idx) > engine.warnAt * 1000L
@@ -390,7 +417,7 @@ class MainActivity : Activity(), TimerEngine.Listener {
             breakSoon -> {
                 showBanner(C.GOLD, C.GOLD_INK)
                 val mins = (s + 59) / 60
-                set(bannerText, "Attention players — the break is over in $mins minutes")
+                set(bannerText, "Attention players — the break is over in $mins minute${if (mins == 1) "" else "s"}")
                 bannerText.typeface = ui.black; bannerText.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, 44f * ui.scale)
                 bannerNum.visibility = View.GONE
             }
@@ -461,9 +488,15 @@ class MainActivity : Activity(), TimerEngine.Listener {
         val timeLabel = ui.text(26f, C.MUTED, ui.bold, 0.24f).apply { text = "TIME" }
         clockText = ui.text(72f, C.CREAM, ui.bebas, 0.04f)
         right.addView(timeLabel, ui.lp(ui.WRAP, ui.WRAP)); right.addView(clockText, ui.lp(ui.WRAP, ui.WRAP).apply { topMargin = ui.px(6) })
+
         header.addView(left, ui.lp(0, ui.WRAP, 1f))
         header.addView(right, ui.lp(ui.WRAP, ui.WRAP))
         body.addView(header, ui.lp(ui.MATCH, ui.WRAP))
+        // when the night started, right under the time of day (floats there, so nothing else moves)
+        startedText = ui.text(26f, C.MUTED, ui.bold, 0.08f)
+        root.addView(startedText, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.END).apply {
+            topMargin = ui.px(182); rightMargin = ui.px(96)
+        })
 
         // center: blinds and clock
         val center = ui.col().apply { gravity = Gravity.CENTER }
@@ -472,6 +505,8 @@ class MainActivity : Activity(), TimerEngine.Listener {
         timerText = ui.text(176f, C.CREAM, ui.bebas, 0.06f)
         center.addView(centerLabel, ui.lp(ui.WRAP, ui.WRAP))
         center.addView(bigText, ui.lp(ui.WRAP, ui.WRAP).apply { topMargin = ui.px(4) })
+        breakNextText = ui.text(64f, C.CREAM, ui.bebas, 0.06f).apply { visibility = View.GONE }
+        center.addView(breakNextText, ui.lp(ui.WRAP, ui.WRAP).apply { topMargin = ui.px(-40); bottomMargin = ui.px(40) })
         chipsRow = ui.row().apply { gravity = Gravity.CENTER; visibility = View.GONE }
         fun chipCol(label: String, chip: ChipView): LinearLayout = ui.col().apply {
             gravity = Gravity.CENTER_HORIZONTAL
@@ -482,15 +517,15 @@ class MainActivity : Activity(), TimerEngine.Listener {
         chipsRow.addView(chipCol("SMALL", sbChip))
         chipsRow.addView(chipCol("BIG", bbChip), ui.lp(ui.WRAP, ui.WRAP).apply { leftMargin = ui.px(70) })
         center.addView(chipsRow, ui.lp(ui.WRAP, ui.WRAP).apply { topMargin = ui.px(6); bottomMargin = ui.px(40) })
-        // the clock, with -1 min / -30 sec on the left and +30 sec / +1 min on the right
+        // the clock, with +1 min / +30 sec on the left and -30 sec / -1 min on the right
         val timerRow = ui.row().apply { gravity = Gravity.CENTER_VERTICAL }
         fun nudgeBtn(label: String, ms: Long) = ui.button(label, height = 68f, textSize = 26f).apply {
             setPadding(0, 0, 0, 0)
             contentDescription = if (ms > 0) "Put $label on the clock" else "Take $label off the clock"
             setOnClickListener { nudge(ms) }
         }
-        val nudges = listOf(nudgeBtn("\u22121 min", -60_000L), nudgeBtn("\u221230 sec", -30_000L),
-            nudgeBtn("+30 sec", 30_000L), nudgeBtn("+1 min", 60_000L))
+        val nudges = listOf(nudgeBtn("+1 min", 60_000L), nudgeBtn("+30 sec", 30_000L),
+            nudgeBtn("\u221230 sec", -30_000L), nudgeBtn("\u22121 min", -60_000L))
         timerText.gravity = Gravity.CENTER
         timerRow.addView(nudges[0], ui.lp(ui.px(150), ui.px(68)))
         timerRow.addView(nudges[1], ui.lp(ui.px(150), ui.px(68)).apply { leftMargin = ui.px(16) })
@@ -499,9 +534,6 @@ class MainActivity : Activity(), TimerEngine.Listener {
         timerRow.addView(nudges[2], ui.lp(ui.px(150), ui.px(68)))
         timerRow.addView(nudges[3], ui.lp(ui.px(150), ui.px(68)).apply { leftMargin = ui.px(16) })
         center.addView(timerRow, ui.lp(ui.WRAP, ui.WRAP).apply { topMargin = ui.px(-34) })
-        startedText = ui.text(26f, C.MUTED, ui.bold, 0.08f)
-        // tucked into the empty space under the clock digits
-        center.addView(startedText, ui.lp(ui.WRAP, ui.WRAP).apply { topMargin = ui.px(-30) })
         body.addView(center, ui.lp(ui.MATCH, 0, 1f))
 
         // banner (warning / countdown / blinds are now)

@@ -37,6 +37,14 @@ class SetupActivity : Activity() {
     private lateinit var updateBtn: TextView
     private var available: Updater.Release? = null
     private lateinit var startupNote: TextView
+    private lateinit var nowLabel: TextView
+    private lateinit var nowClock: TextView
+    private lateinit var nowPaused: TextView
+    private lateinit var gameTime: TextView
+    private val handler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val clockTick = object : Runnable {
+        override fun run() { showNow(); handler.postDelayed(this, 250) }
+    }
 
     private companion object {
         // column widths on the 1920-wide drawing
@@ -359,6 +367,33 @@ class SetupActivity : Activity() {
         if (Prefs.theme(this) != themeShown) { recreate(); return }
         if (::startupBtn.isInitialized) refreshStartup()
         if (::knockBtn.isInitialized) refreshKnock()
+        handler.removeCallbacks(clockTick)
+        handler.post(clockTick)
+    }
+
+    /** The small live clock at the top: where the night is while changes are being made. */
+    private fun showNow() {
+        if (!::nowClock.isInitialized) return
+        val e = MainActivity.live
+        // how long the night has been going, since Start was first pressed
+        val started = if (e != null) MainActivity.gameStartedAt else 0L
+        val g = if (started > 0) ((System.currentTimeMillis() - started) / 1000).coerceAtLeast(0) else -1L
+        val gt = if (g < 0) "" else "GAME TIME  %d:%02d:%02d".format(g / 3600, g / 60 % 60, g % 60)
+        if (gameTime.text.toString() != gt) gameTime.text = gt
+        if (e == null) { nowLabel.text = ""; nowClock.text = ""; nowPaused.text = ""; return }
+        val now = SystemClock.elapsedRealtime()
+        val s = e.secondsLeft(now)
+        val cur = e.current
+        val nx = e.next
+        val num = e.levels.take(e.idx + 1).count { !it.isBreak }
+        val where = if (cur.isBreak) "BREAK" else "LEVEL $num  \u00B7  ${cur.blindsText}"
+        nowLabel.text = if (e.finished) "FINAL LEVEL COMPLETE" else where
+        nowPaused.text = if (!e.running && !e.finished) "PAUSED" else ""
+        val t = "%d:%02d".format(s / 60, s % 60)
+        if (nowClock.text.toString() != t) nowClock.text = t
+        val counting = e.running && nx != null && s in 1..e.knocks
+        val warning = e.running && nx != null && s in (e.knocks + 1)..e.warnAt && e.durationMs(e.idx) > e.warnAt * 1000L
+        nowClock.setTextColor(if (counting) C.ORANGE else if (warning || cur.isBreak) C.GOLD else C.CREAM)
     }
 
     private fun refreshKnock() {
@@ -435,6 +470,7 @@ class SetupActivity : Activity() {
 
     override fun onPause() {
         super.onPause()
+        handler.removeCallbacks(clockTick)
         Announcer.hushPreview()
     }
 
@@ -450,7 +486,20 @@ class SetupActivity : Activity() {
         titles.addView(ui.text(26f, C.MUTED, ui.bold, 0.24f).apply { text = "POKER NIGHT" })
         titles.addView(ui.text(80f, C.GOLD, ui.bebas, 0.04f).apply { text = "TOURNAMENT SETUP" },
             ui.lp(ui.WRAP, ui.WRAP).apply { topMargin = ui.px(6) })
-        header.addView(titles, ui.lp(0, ui.WRAP, 1f))
+        header.addView(titles, ui.lp(ui.WRAP, ui.WRAP))
+        // live clock in the empty space between the title and Theme
+        val nowCol = ui.col().apply { gravity = Gravity.CENTER_HORIZONTAL }
+        nowLabel = ui.text(22f, C.MUTED, ui.bold, 0.12f).apply {
+            maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
+        }
+        nowClock = ui.text(72f, C.CREAM, ui.bebas, 0.04f)
+        nowPaused = ui.text(22f, C.MUTED, ui.bold, 0.12f)
+        val clockRow = ui.row().apply { gravity = Gravity.BOTTOM }
+        clockRow.addView(nowClock, ui.lp(ui.WRAP, ui.WRAP))
+        clockRow.addView(nowPaused, ui.lp(ui.WRAP, ui.WRAP).apply { leftMargin = ui.px(14); bottomMargin = ui.px(12) })
+        nowCol.addView(nowLabel, ui.lp(ui.WRAP, ui.WRAP))
+        nowCol.addView(clockRow, ui.lp(ui.WRAP, ui.WRAP).apply { topMargin = ui.px(4) })
+        header.addView(nowCol, ui.lp(0, ui.WRAP, 1f).apply { leftMargin = ui.px(30); rightMargin = ui.px(30) })
         // top right: Theme, then Update app
         val themeBtn = ui.button("Theme:  " + Theme.name(Prefs.theme(this)), height = 84f, textSize = 28f).apply {
             setPadding(ui.px(36), 0, ui.px(36), 0)
@@ -471,9 +520,15 @@ class SetupActivity : Activity() {
         header.addView(updateBtn, (updateBtn.layoutParams as LinearLayout.LayoutParams).apply { leftMargin = ui.px(20) })
         body.addView(header, ui.lp(ui.MATCH, ui.WRAP))
 
-        body.addView(ui.text(26f, C.MUTED, ui.bold).apply {
-            text = "Use \u2212 and + to change the small blind and the minutes  \u00B7  the big blind is always twice the small blind  \u00B7  \u25B2 \u25BC move a row"
-        }, ui.lp(ui.WRAP, ui.WRAP).apply { topMargin = ui.px(18) })
+        // hint on the left, the game timer on the right
+        val hintRow = ui.row().apply { gravity = Gravity.CENTER_VERTICAL }
+        hintRow.addView(ui.text(26f, C.MUTED, ui.bold).apply {
+            text = "Use \u2212 and + to change the small blind and the minutes  \u00B7  big blind is always twice the small  \u00B7  \u25B2 \u25BC move a row"
+            maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
+        }, ui.lp(0, ui.WRAP, 1f))
+        gameTime = ui.text(30f, C.CREAM, ui.bold, 0.06f)
+        hintRow.addView(gameTime, ui.lp(ui.WRAP, ui.WRAP).apply { leftMargin = ui.px(24) })
+        body.addView(hintRow, ui.lp(ui.MATCH, ui.WRAP).apply { topMargin = ui.px(18) })
 
         val main = ui.row()
         body.addView(main, ui.lp(ui.MATCH, 0, 1f).apply { topMargin = ui.px(28) })

@@ -17,11 +17,15 @@ object Lineup {
         Level(0, 0, 15, isBreak = true),
         Level(4, 8, 20),
         Level(5, 10, 20),
-        Level(6, 12, 20),
         Level(0, 0, 15, isBreak = true),
-        Level(7, 14, 20),
-        Level(8, 16, 20),
-        Level(9, 18, 15)
+        Level(6, 12, 20),
+        Level(7, 14, 15),
+        Level(8, 16, 15),
+        Level(0, 0, 10, isBreak = true),
+        Level(9, 18, 15),
+        Level(10, 20, 15),
+        Level(15, 30, 15),
+        Level(20, 40, 15)
     )
 
     private const val PREFS = "poker_timer"
@@ -51,12 +55,15 @@ object Lineup {
         return if (out.any { !it.isBreak }) out else null
     }
 
-    /** The lineup the app used to start with; a box still on it moves to the new one. */
-    private const val OLD_DEFAULT = "1,2,20;2,4,20;3,6,20;4,8,20;B,15;5,10,20;6,12,20;7,14,20;8,16,20;B,15;9,18,20;10,20,20;15,30,10;B,15;20,40,20"
+    /** Lineups the app used to start with; a box still on one of them moves to the current one. */
+    private val OLD_DEFAULTS = setOf(
+        "1,2,20;2,4,20;3,6,20;4,8,20;B,15;5,10,20;6,12,20;7,14,20;8,16,20;B,15;9,18,20;10,20,20;15,30,10;B,15;20,40,20",
+        "1,2,20;2,4,20;3,6,20;B,15;4,8,20;5,10,20;6,12,20;B,15;7,14,20;8,16,20;9,18,15"
+    )
 
     fun load(ctx: Context): List<Level> {
         val txt = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY, null)
-        if (txt == OLD_DEFAULT) return DEFAULT
+        if (txt in OLD_DEFAULTS) return DEFAULT
         return decode(txt) ?: DEFAULT
     }
 
