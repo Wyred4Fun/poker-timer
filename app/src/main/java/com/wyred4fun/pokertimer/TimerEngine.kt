@@ -100,6 +100,32 @@ class TimerEngine(levels: List<Level>, private val listener: Listener) {
         }
     }
 
+    /**
+     * Put time on the clock (+) or take it off (-), e.g. +30 s or -1 min.
+     * Never more than the level's full time, never less than 1 second left.
+     * Taking time off past the 1-minute mark (or 3 minutes in a break) still gives that heads-up.
+     */
+    fun adjust(deltaMs: Long, now: Long): Boolean {
+        if (finished) return false
+        update(now)
+        if (finished) return false
+        val before = msLeft(now)
+        val after = (before + deltaMs).coerceIn(minOf(before, 1000L), durationMs(idx))
+        if (after == before) return false
+        val nx = next
+        if (running && after < before && nx != null) {
+            val b = ceilSec(before); val a = ceilSec(after)
+            if (current.isBreak && b > BREAK_WARN && a <= BREAK_WARN && a > warnAt && durationMs(idx) > BREAK_WARN * 1000L) listener.onBreakEnding(BREAK_WARN / 60)
+            if (b > warnAt && a <= warnAt && a > knocks && durationMs(idx) > warnAt * 1000L) listener.onWarning(current, nx)
+        }
+        remainingMs = after
+        if (running) {
+            endAt = now + after
+            lastSec = ceilSec(after)
+        }
+        return true
+    }
+
     /** Jump to a step (Back / Skip). Keeps running if it was running. */
     fun goTo(i: Int, now: Long): Boolean {
         if (i == levels.size) extendTo(i)

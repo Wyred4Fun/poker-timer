@@ -217,6 +217,16 @@ class MainActivity : Activity(), TimerEngine.Listener {
         }
     }
 
+    /** +/- buttons beside the clock: put time on or take it off. */
+    private fun nudge(deltaMs: Long) {
+        val now = SystemClock.elapsedRealtime()
+        if (engine.adjust(deltaMs, now)) {
+            saveState()
+            render()
+            syncCountdown(now)
+        }
+    }
+
     private fun resetLevel() {
         Announcer.hush()
         engine.resetLevel(SystemClock.elapsedRealtime())
@@ -472,7 +482,23 @@ class MainActivity : Activity(), TimerEngine.Listener {
         chipsRow.addView(chipCol("SMALL", sbChip))
         chipsRow.addView(chipCol("BIG", bbChip), ui.lp(ui.WRAP, ui.WRAP).apply { leftMargin = ui.px(70) })
         center.addView(chipsRow, ui.lp(ui.WRAP, ui.WRAP).apply { topMargin = ui.px(6); bottomMargin = ui.px(40) })
-        center.addView(timerText, ui.lp(ui.WRAP, ui.WRAP).apply { topMargin = ui.px(-34) })
+        // the clock, with -1 min / -30 sec on the left and +30 sec / +1 min on the right
+        val timerRow = ui.row().apply { gravity = Gravity.CENTER_VERTICAL }
+        fun nudgeBtn(label: String, ms: Long) = ui.button(label, height = 68f, textSize = 26f).apply {
+            setPadding(0, 0, 0, 0)
+            contentDescription = if (ms > 0) "Put $label on the clock" else "Take $label off the clock"
+            setOnClickListener { nudge(ms) }
+        }
+        val nudges = listOf(nudgeBtn("\u22121 min", -60_000L), nudgeBtn("\u221230 sec", -30_000L),
+            nudgeBtn("+30 sec", 30_000L), nudgeBtn("+1 min", 60_000L))
+        timerText.gravity = Gravity.CENTER
+        timerRow.addView(nudges[0], ui.lp(ui.px(150), ui.px(68)))
+        timerRow.addView(nudges[1], ui.lp(ui.px(150), ui.px(68)).apply { leftMargin = ui.px(16) })
+        // fixed width so the buttons don't shift as the digits change
+        timerRow.addView(timerText, ui.lp(ui.px(520), ui.WRAP).apply { leftMargin = ui.px(36); rightMargin = ui.px(36) })
+        timerRow.addView(nudges[2], ui.lp(ui.px(150), ui.px(68)))
+        timerRow.addView(nudges[3], ui.lp(ui.px(150), ui.px(68)).apply { leftMargin = ui.px(16) })
+        center.addView(timerRow, ui.lp(ui.WRAP, ui.WRAP).apply { topMargin = ui.px(-34) })
         startedText = ui.text(26f, C.MUTED, ui.bold, 0.08f)
         // tucked into the empty space under the clock digits
         center.addView(startedText, ui.lp(ui.WRAP, ui.WRAP).apply { topMargin = ui.px(-30) })

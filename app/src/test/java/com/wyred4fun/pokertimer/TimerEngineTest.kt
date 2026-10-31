@@ -260,6 +260,51 @@ class TimerEngineTest {
         assertEquals("3 – 6", e2.current.blindsText)
     }
 
+    @Test fun plusMinusTimeButtons() {
+        val r = Rec()
+        val e = TimerEngine(Lineup.DEFAULT, r)
+        e.start(0)
+        run(e, 0, 5 * 60_000L)                       // 15:00 left
+        assertTrue(e.adjust(-60_000, 5 * 60_000L))
+        assertEquals(14 * 60, e.secondsLeft(5 * 60_000L))
+        assertTrue(e.adjust(30_000, 5 * 60_000L))
+        assertEquals(14 * 60 + 30, e.secondsLeft(5 * 60_000L))
+        // never more than the full 20 minutes
+        e.adjust(60_000, 5 * 60_000L); e.adjust(60_000, 5 * 60_000L); e.adjust(60_000, 5 * 60_000L); e.adjust(60_000, 5 * 60_000L)
+        e.adjust(60_000, 5 * 60_000L); e.adjust(60_000, 5 * 60_000L)
+        assertEquals(20 * 60, e.secondsLeft(5 * 60_000L))
+        assertFalse(e.adjust(30_000, 5 * 60_000L))
+        assertTrue(r.log.isEmpty())
+        // paused: the clock moves but stays stopped
+        e.pause(5 * 60_000L)
+        e.adjust(-30_000, 6 * 60_000L)
+        assertEquals(19 * 60 + 30, e.secondsLeft(9 * 60_000L))
+        assertFalse(e.running)
+    }
+
+    @Test fun takingTimeOffPastOneMinuteStillWarnsAndCountsDown() {
+        val r = Rec()
+        val e = TimerEngine(Lineup.DEFAULT, r)
+        e.start(0)
+        run(e, 0, 19 * 60_000L - 30_000)             // 1:30 left
+        e.adjust(-60_000, 19 * 60_000L - 30_000)      // 0:30 left
+        assertEquals(listOf("warn 2 – 4"), r.log)
+        run(e, 19 * 60_000L - 29_900, 19 * 60_000L + 500)
+        assertEquals(listOf("warn 2 – 4", "knock 5", "knock 4", "knock 3", "knock 2", "knock 1", "now 2 – 4"), r.log)
+        // never below 1 second
+        val e2 = TimerEngine(Lineup.DEFAULT, Rec())
+        e2.start(0); e2.update(20 * 60_000L - 20_000)
+        e2.adjust(-60_000, 20 * 60_000L - 20_000)
+        assertEquals(1, e2.secondsLeft(20 * 60_000L - 20_000))
+        // putting time back on in the last minute: the heads-up and countdown come again
+        val r3 = Rec(); val e3 = TimerEngine(Lineup.DEFAULT, r3)
+        e3.start(0); run(e3, 0, 19 * 60_000L + 20_000)   // 0:40 left, warned
+        e3.adjust(60_000, 19 * 60_000L + 20_000)          // 1:40 left
+        run(e3, 19 * 60_000L + 20_100, 20 * 60_000L + 60_500)
+        assertEquals(2, r3.log.count { it.startsWith("warn") })
+        assertEquals(5, r3.log.count { it.startsWith("knock") })
+    }
+
     @Test fun addingLevelAfterFinishCarriesOn() {
         val e = TimerEngine(Lineup.DEFAULT, Rec())
         e.carryOn = false
