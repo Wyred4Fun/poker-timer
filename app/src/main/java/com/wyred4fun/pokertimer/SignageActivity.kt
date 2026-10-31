@@ -40,8 +40,12 @@ class SignageActivity : Activity() {
         Updater.cleanUp(this)
     }
 
-    override fun onResume() { super.onResume(); board.start() }
-    override fun onPause() { board.stop(); super.onPause() }
+    override fun onResume() {
+        super.onResume()
+        board.start()
+        MainActivity.foreground = true; BootReceiver.Log.opened(this)   // so a startup retry knows we're up
+    }
+    override fun onPause() { MainActivity.foreground = false; board.stop(); super.onPause() }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
         when (keyCode) {

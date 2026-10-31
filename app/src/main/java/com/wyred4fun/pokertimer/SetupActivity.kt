@@ -265,8 +265,12 @@ class SetupActivity : Activity() {
         if (::preGameBtn.isInitialized) toggleText(preGameBtn, if (pre) "Friday countdown:  On" else "Friday countdown:  Off", pre)
         // both open the app by themselves, which needs "Display over other apps" on Android 10 and later
         val needs = (on || pre) && !startupAllowed()
-        startupNote.visibility = if (needs) View.VISIBLE else View.GONE
-        if (needs) {
+        startupNote.visibility = if (needs || on) View.VISIBLE else View.GONE
+        if (!needs && on) {
+            // what the last startup did (see BootReceiver.Log)
+            startupNote.text = BootReceiver.Log.line(this)
+            startupNote.setTextColor(C.MUTED)
+        } else if (needs) {
             startupNote.text = if (hasOverlayScreen())
                 "Allow it: Settings \u203A Apps \u203A Special app access"
             else "This box can't open the timer by itself"
@@ -408,7 +412,7 @@ class SetupActivity : Activity() {
     }
 
     private fun switchRow(label: String, key: String, read: () -> Boolean): TextView =
-        ui.button(label, height = 48f, textSize = 28f).apply {
+        ui.button(label, height = 44f, textSize = 28f).apply {
             gravity = Gravity.CENTER_VERTICAL
             setPadding(ui.px(26), 0, ui.px(26), 0)
             background = ui.pillBg(C.FELT, C.EDGE, C.PANEL_HI, C.GOLD, 20f)
@@ -596,8 +600,8 @@ class SetupActivity : Activity() {
         rightPanel.addView(rightScroll, ui.lp(ui.MATCH, ui.MATCH))
         right.addView(ui.text(24f, C.MUTED, ui.bold, 0.16f).apply { text = "SOUND & VOICE" })
         val gap = { v: View, top: Int -> right.addView(v, ui.lp(ui.MATCH, (v.layoutParams as? LinearLayout.LayoutParams)?.height ?: ui.WRAP).apply { topMargin = ui.px(top) }) }
-        gap(switchRow("Chime & notification", "sounds") { Prefs.sounds(this) }, 6)
-        gap(ui.button("Voice", height = 48f, textSize = 28f).apply {
+        gap(switchRow("Chime & notification", "sounds") { Prefs.sounds(this) }, 5)
+        gap(ui.button("Voice", height = 44f, textSize = 28f).apply {
             gravity = Gravity.CENTER_VERTICAL
             setPadding(ui.px(26), 0, ui.px(26), 0)
             background = ui.pillBg(C.FELT, C.EDGE, C.PANEL_HI, C.GOLD, 20f)
@@ -620,22 +624,22 @@ class SetupActivity : Activity() {
                 })
                 show()
             }
-        }, 6)
-        knockBtn = ui.button("Notification sound", height = 48f, textSize = 28f).apply {
+        }, 5)
+        knockBtn = ui.button("Notification sound", height = 44f, textSize = 28f).apply {
             gravity = Gravity.CENTER_VERTICAL
             setPadding(ui.px(26), 0, ui.px(26), 0)
             background = ui.pillBg(C.FELT, C.EDGE, C.PANEL_HI, C.GOLD, 20f)
             ellipsize = android.text.TextUtils.TruncateAt.END
             setOnClickListener { startActivity(Intent(this@SetupActivity, SoundsActivity::class.java)) }
         }
-        gap(knockBtn, 6)
+        gap(knockBtn, 5)
         refreshKnock()
-        gap(ui.button("Test sounds", height = 48f).apply {
+        gap(ui.button("Test sounds", height = 44f).apply {
             ui.icon(this, Icon.PLAY, C.CREAM, 26f)
             setOnClickListener { Announcer.demo() }
-        }, 6)
+        }, 5)
         right.addView(ui.text(24f, C.MUTED, ui.bold, 0.16f).apply { text = "OTHER" }, ui.lp(ui.WRAP, ui.WRAP).apply { topMargin = ui.px(14) })
-        startupBtn = ui.button("Open at startup", height = 48f, textSize = 28f).apply {
+        startupBtn = ui.button("Open at startup", height = 44f, textSize = 28f).apply {
             gravity = Gravity.CENTER_VERTICAL
             setPadding(ui.px(26), 0, ui.px(26), 0)
             background = ui.pillBg(C.FELT, C.EDGE, C.PANEL_HI, C.GOLD, 20f)
@@ -646,9 +650,11 @@ class SetupActivity : Activity() {
                 if (nv && !startupAllowed()) askStartupPermission()
             }
         }
-        gap(startupBtn, 6)
+        gap(startupBtn, 5)
+        startupNote = ui.text(20f, C.MUTED, ui.bold).apply { setSingleLine(true); ellipsize = android.text.TextUtils.TruncateAt.END }
+        right.addView(startupNote, ui.lp(ui.MATCH, ui.WRAP).apply { topMargin = ui.px(4) })
         // Thursday 5 PM to Friday 7:30 PM: the "Poker starts sharp at 7:30" countdown, and the app opens itself Thursday at 5
-        preGameBtn = ui.button("Friday countdown", height = 48f, textSize = 28f).apply {
+        preGameBtn = ui.button("Friday countdown", height = 44f, textSize = 28f).apply {
             gravity = Gravity.CENTER_VERTICAL
             setPadding(ui.px(26), 0, ui.px(26), 0)
             background = ui.pillBg(C.FELT, C.EDGE, C.PANEL_HI, C.GOLD, 20f)
@@ -662,14 +668,19 @@ class SetupActivity : Activity() {
         }
         // the Friday countdown and the slides are only in the Catalpa Club Poker Timer version
         if (BuildConfig.CLUB) {
-            gap(preGameBtn, 6)
-            gap(switchRow("Club billboard slides", "billboard") { Billboard.enabled(this) }, 6)
+            gap(preGameBtn, 5)
+            gap(switchRow("Club billboard slides", "billboard") { Billboard.enabled(this) }, 5)
+            // which pictures are in the billboard: see them all, switch each on or off
+            gap(ui.button("Billboard images  \u203A", height = 44f, textSize = 28f).apply {
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(ui.px(26), 0, ui.px(26), 0)
+                background = ui.pillBg(C.FELT, C.EDGE, C.PANEL_HI, C.GOLD, 20f)
+                setOnClickListener { startActivity(Intent(this@SetupActivity, SlidesActivity::class.java)) }
+            }, 5)
         }
-        startupNote = ui.text(20f, C.MUTED, ui.bold).apply { setSingleLine(true); ellipsize = android.text.TextUtils.TruncateAt.END }
-        right.addView(startupNote, ui.lp(ui.MATCH, ui.WRAP).apply { topMargin = ui.px(8) })
         refreshStartup()
-        gap(switchRow("Blinds in chips", "chips") { Prefs.chips(this) }, 6)
-        gap(switchRow("Test mode (75 s levels)", "testMode") { Prefs.testMode(this) }, 6)
+        gap(switchRow("Blinds in chips", "chips") { Prefs.chips(this) }, 5)
+        gap(switchRow("Test mode (75 s levels)", "testMode") { Prefs.testMode(this) }, 5)
 
         rebuildList()
         root.post {

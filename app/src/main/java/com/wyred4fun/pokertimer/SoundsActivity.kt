@@ -12,7 +12,7 @@ import android.widget.TextView
 
 /**
  * Knock sound picker: every sound made so far, two per row.
- * OK plays it three times (like the countdown) and makes it the knock.
+ * OK plays it once and makes it the knock.
  */
 class SoundsActivity : Activity() {
 
@@ -79,7 +79,7 @@ class SoundsActivity : Activity() {
         body.addView(header, ui.lp(ui.MATCH, ui.WRAP))
 
         body.addView(ui.text(26f, C.MUTED, ui.bold).apply {
-            text = "Press OK to hear a sound. The one with the check plays as the blinds go up."
+            text = "Press OK to hear it once. The one with the check plays as the blinds go up."
         }, ui.lp(ui.WRAP, ui.WRAP).apply { topMargin = ui.px(18) })
 
         val scroll = ScrollView(this).apply { isVerticalScrollBarEnabled = true; clipToPadding = false }

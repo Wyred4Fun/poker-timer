@@ -59,6 +59,8 @@ class MainActivity : Activity(), TimerEngine.Listener {
     private lateinit var preGame: PreGameView
     private var preGameShown = false
     private var preGamePeekUntil = 0L
+    /** "Show the countdown now" (Menu button or Setup > Billboard images): the countdown comes up on any day until a button is pressed. */
+    private var forceCountdown = false
     private var preGameOn = true
     private var backFromSetup = false
     /** The club billboard (slides), shown when poker isn't on. */
@@ -105,6 +107,8 @@ class MainActivity : Activity(), TimerEngine.Listener {
         preGameOn = PreGame.enabled(this)
         billboardOn = Billboard.enabled(this)
         resumed = true
+        foreground = true
+        BootReceiver.Log.opened(this)
         lastKeyAt = SystemClock.elapsedRealtime()
         // pick up any changes made on the Setup screen
         val now = SystemClock.elapsedRealtime()
@@ -125,6 +129,7 @@ class MainActivity : Activity(), TimerEngine.Listener {
         super.onPause()
         if (BuildConfig.SIGNAGE) return
         resumed = false
+        foreground = false
         // the clock (and its sounds) keep going while Setup is open
         saveState()
     }
@@ -144,6 +149,8 @@ class MainActivity : Activity(), TimerEngine.Listener {
         /** The running clock, so Setup can apply changes to it straight away. */
         var live: TimerEngine? = null
         /** When the night started (wall clock ms, 0 = not started), for Setup's game timer. */
+        /** True while the timer screen is in front (the startup retry checks it). */
+        @Volatile var foreground = false
         var gameStartedAt = 0L
         /** Tests only: show the countdown and billboard even under the test runner. */
         var forceOverlays = false
@@ -313,7 +320,9 @@ class MainActivity : Activity(), TimerEngine.Listener {
         lastKeyAt = now
         if (event.action == KeyEvent.ACTION_DOWN) {
             // any press puts the Friday countdown aside for 90 seconds (it comes back if Start isn't pressed)
+            if (keyHeldMenu(event)) return true
             val wasShowing = preGameShown || billboardShown
+            forceCountdown = false
             preGamePeekUntil = now + IDLE_SNAP_MS
             if (wasShowing) { render(); playBtn.requestFocus(); return true }
         }
@@ -326,8 +335,27 @@ class MainActivity : Activity(), TimerEngine.Listener {
         if (SystemClock.elapsedRealtime() - lastKeyAt >= IDLE_SNAP_MS) playBtn.requestFocus()
     }
 
+    /** A held Menu button repeats; only the first press counts. */
+    private fun keyHeldMenu(e: KeyEvent) = e.keyCode == KeyEvent.KEYCODE_MENU && e.repeatCount > 0
+
+    /** Asked to come back to the front with the countdown (from Setup > Billboard images). */
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (intent.getBooleanExtra("showCountdown", false)) showCountdownNow()
+    }
+
+    private fun showCountdownNow() {
+        if (!BuildConfig.CLUB || engine.running) return
+        forceCountdown = true
+        backFromSetup = false      // coming back from Setup would otherwise hide it for 90 seconds
+        preGamePeekUntil = 0
+        if (::playBtn.isInitialized) render()
+    }
+
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
         when (keyCode) {
+            KeyEvent.KEYCODE_MENU -> if (BuildConfig.CLUB) { if (event.repeatCount == 0) showCountdownNow(); return true }
             KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, KeyEvent.KEYCODE_MEDIA_PLAY, KeyEvent.KEYCODE_MEDIA_PAUSE -> {
                 if (event.repeatCount > 0) return true
                 val wantPlay = keyCode == KeyEvent.KEYCODE_MEDIA_PLAY
@@ -502,7 +530,8 @@ class MainActivity : Activity(), TimerEngine.Listener {
         if (!::preGame.isInitialized) return
         val wall = PreGame.clock()
         val aside = now < preGamePeekUntil || !overlaysAllowed()
-        val show = !aside && preGameOn && PreGame.showing(wall, startedAt, engine.running)
+        val show = !aside && !engine.running &&
+            ((preGameOn && PreGame.showing(wall, startedAt, engine.running)) || (forceCountdown && BuildConfig.CLUB))
         if (show != preGameShown) {
             preGameShown = show
             preGame.visibility = if (show) View.VISIBLE else View.GONE
@@ -512,12 +541,20 @@ class MainActivity : Activity(), TimerEngine.Listener {
             preGame.setLineup(engine.levels)
             preGame.update(wall, timeOfDay(wall), now)
         }
-        val bill = !aside && !show && billboardOn && Billboard.wanted(wall, startedAt, engine.running, engine.finished)
+        val bill = !aside && !show && billboardOn && Billboard.wanted(wall, startedAt, engine.running, engine.finished) && billboardHasSlides(now, wall)
         if (bill != billboardShown) {
             billboardShown = bill
             billboard.visibility = if (bill) View.VISIBLE else View.GONE
             if (bill) billboard.start() else billboard.stop()
         }
+    }
+
+    private var slidesCheckedAt = -100_000L
+    private var slidesAny = true
+    /** Is there a slide to show? Looked up every few seconds, not on every screen tick. */
+    private fun billboardHasSlides(now: Long, wall: Long): Boolean {
+        if (now - slidesCheckedAt > 5000) { slidesCheckedAt = now; slidesAny = Billboard.hasAny(this, wall) }
+        return slidesAny
     }
 
     /** The screen tests switch these off unless a test asks for them. */

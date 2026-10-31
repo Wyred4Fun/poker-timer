@@ -80,7 +80,7 @@ object Announcer {
         try { old?.release() } catch (e: Exception) {}
     }
 
-    /** Pick a knock and play it the way the countdown will: one per second, even with sounds switched off. */
+    /** Pick a knock and play it once (even with sounds switched off) so you can hear what it is. */
     fun pickKnock(ctx: Context, id: String) {
         Prefs.setKnockSound(ctx, id)
         useKnock(id)
@@ -90,7 +90,8 @@ object Announcer {
         val now = android.os.SystemClock.elapsedRealtime()
         if (e != null && e.running && e.next != null && e.secondsLeft(now) <= knockHits + e.knocks + 3) return
         // same timed stream as the real countdown: first hit about 0.6 s after OK
-        knockPcm?.let { (pcm, rate) -> Countdown.start(now + 600L + knockHits * 1000L, knockHits, pcm, rate, preview = true) }
+        // one hit only, through the same timed stream the countdown uses
+        knockPcm?.let { (pcm, rate) -> Countdown.start(now + 600L + 1000L, 1, pcm, rate, preview = true) }
     }
 
     /** Previews and Test sounds are tagged, so stopping them never cuts off the running timer. */

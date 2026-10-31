@@ -44,7 +44,7 @@ class BillboardView(ctx: Context) : FrameLayout(ctx) {
 
     private fun next() {
         if (!running) return
-        val name = pick() ?: return
+        val name = pick() ?: run { main.postDelayed({ next() }, 30_000L); return }
         val my = ++serial
         Thread {
             val bmp = try {
@@ -73,11 +73,13 @@ class BillboardView(ctx: Context) : FrameLayout(ctx) {
         old.postDelayed({ if (front !== old) old.setImageDrawable(null) }, 1400)
     }
 
-    /** Next slide: a shuffled deck of the current slides, never the same one twice in a row. */
+    /** Next slide: a shuffled deck of the current slides, never the same one twice in a row. Pictures switched off (or on) in Setup count right away. */
     private fun pick(): String? {
-        if (deck.isEmpty()) {
-            val all = Billboard.current(context, System.currentTimeMillis())
-            if (all.isEmpty()) return null
+        val all = Billboard.current(context, System.currentTimeMillis())
+        if (all.isEmpty()) { deck.clear(); return null }
+        val set = all.toSet()
+        if (deck.isEmpty() || deck.any { it !in set } || set != deckSet) {
+            deckSet = set
             deck = ArrayList(all.shuffled())
             if (deck.size > 1 && deck.first() == last) deck.add(deck.removeAt(0))
         }
@@ -85,6 +87,7 @@ class BillboardView(ctx: Context) : FrameLayout(ctx) {
         last = n
         return n
     }
+    private var deckSet: Set<String> = emptySet()
 }
 
 object Billboard {
@@ -112,10 +115,60 @@ object Billboard {
         Calendar.getInstance().apply { clear(); set(y, m - 1, d, h, 0) }.timeInMillis
     }
 
-    /** The slides to show right now. */
-    fun current(ctx: Context, now: Long): List<String> =
+    /** Every slide in the app, in order. */
+    fun all(ctx: Context): List<String> =
         (ctx.assets.list("slides") ?: emptyArray()).filter { it.endsWith(".jpg") }.sorted()
-            .filter { n -> (expiresAt(n)?.let { now < it } ?: true) && (startsAt(n)?.let { now >= it } ?: true) }
+
+    /** The slides to show right now: not switched off by hand, and inside their dates. */
+    fun current(ctx: Context, now: Long): List<String> {
+        val off = switchedOff(ctx)
+        return all(ctx).filter { n -> n !in off && inDates(n, now) }
+    }
+
+    private fun inDates(n: String, now: Long) =
+        (expiresAt(n)?.let { now < it } ?: true) && (startsAt(n)?.let { now >= it } ?: true)
+
+    private const val OFF_KEY = "slidesOff"
+
+    /** Slides switched off by hand in Setup > Billboard images. */
+    fun switchedOff(ctx: Context): Set<String> =
+        (ctx.getSharedPreferences("poker_timer", Context.MODE_PRIVATE).getString(OFF_KEY, "") ?: "")
+            .split(",").filter { it.isNotEmpty() }.toSet()
+
+    fun setOff(ctx: Context, name: String, off: Boolean) {
+        val now = switchedOff(ctx).toMutableSet()
+        if (off) now.add(name) else now.remove(name)
+        ctx.getSharedPreferences("poker_timer", Context.MODE_PRIVATE).edit().putString(OFF_KEY, now.sorted().joinToString(",")).apply()
+    }
+
+    /** Names for the Billboard images screen. */
+    private val TITLES = mapOf(
+        "00_logo" to "Club logo", "01_holdem" to "Friday nights", "02_hours" to "Hours", "03_shots" to "Shots, $2.50",
+        "04_slash" to "Slash My Ass ale", "05_field" to "Field of Dreams bourbon", "06_fall" to "Fall Y'all Ball",
+        "07_bingo" to "Bingo", "08_five" to "The 5 at the Club", "09_wrap" to "Grilled Wrap truck", "10_menu" to "Grilled Wrap menu",
+        "11_drinks" to "Fall specialty drinks", "12_welcome" to "Welcome", "13_poker" to "Texas Hold'em", "14_since" to "Since 1939",
+        "15_member" to "Bring a friend", "16_lions" to "Lions football", "17_safe" to "Get home safe", "18_thanks" to "Thanks, bartenders",
+        "19_veterans" to "Veterans Day", "20_thanks_giving" to "Thanksgiving", "21_wifi" to "Member Wi-Fi"
+    )
+
+    fun title(name: String): String = TITLES[name.removeSuffix(".jpg")] ?: name.removeSuffix(".jpg")
+
+    /** What the tile says: ON / OFF, with the dates for slides that come and go by themselves. */
+    fun status(ctx: Context, name: String, now: Long): String {
+        fun day(ms: Long) = java.text.SimpleDateFormat("MMM d", java.util.Locale.US).format(java.util.Date(ms))
+        val off = name in switchedOff(ctx)
+        val from = startsAt(name); val until = expiresAt(name)
+        return when {
+            until != null && now >= until -> "ENDED " + day(until - 1)
+            off -> "OFF"
+            from != null && now < from -> "ON \u00B7 STARTS " + day(from)
+            until != null -> "ON \u00B7 UNTIL " + day(until - 1)
+            else -> "ON"
+        }
+    }
+
+    /** Is there anything to show? (Everything can be switched off.) */
+    fun hasAny(ctx: Context, now: Long) = current(ctx, now).isNotEmpty()
 
     /** Each slide stays up a random 60 to 120 seconds. */
     fun holdMs(): Long = 60_000L + (Math.random() * 60_000L).toLong()
