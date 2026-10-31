@@ -1,9 +1,17 @@
-name: Build Poker Timer
+name: Build Catalpa Club Poker Timer and Digital Billboard (Poker Timer on request)
 
+# Every push builds Catalpa Club Poker Timer (club TV with poker) and Digital Billboard (slides only).
+# Poker Timer is finished and parked: it is only built when the commit message contains [poker]
+# or when this workflow is run by hand with "poker" ticked.
 on:
   push:
     branches: [ main ]
   workflow_dispatch:
+    inputs:
+      poker:
+        description: 'Also build Poker Timer'
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -11,6 +19,8 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      WITH_POKER: ${{ (github.event_name == 'workflow_dispatch' && inputs.poker) || contains(github.event.head_commit.message, '[poker]') }}
     steps:
       - uses: actions/checkout@v4
 
@@ -24,16 +34,39 @@ jobs:
           gradle-version: '8.14.3'
 
       - name: Run gradle assembleRelease
-        run: gradle --no-daemon testReleaseUnitTest assembleRelease
+        run: |
+          TASKS="testClubReleaseUnitTest assembleClubRelease assembleSignageRelease"
+          if [ "$WITH_POKER" = "true" ]; then TASKS="$TASKS assemblePokerRelease"; fi
+          gradle --no-daemon $TASKS
 
-      - name: Publish the APK
+      - name: Publish the APKs
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          APK="PokerTimer-1.0.${{ github.run_number }}.apk"
-          cp app/build/outputs/apk/release/app-release.apk "$APK"
-          gh release create "build-${{ github.run_number }}" "$APK" \
+          N="${{ github.run_number }}"
+          # Catalpa Club Poker Timer: build-N (the release the club TV's Update button looks for)
+          CLUB="CatalpaClubPokerTimer-1.0.$N.apk"
+          cp app/build/outputs/apk/club/release/app-club-release.apk "$CLUB"
+          gh release create "build-$N" "$CLUB" \
             --prerelease \
-            --title "Poker Timer 1.0.${{ github.run_number }}" \
+            --title "Catalpa Club Poker Timer 1.0.$N" \
             --notes "Built from commit ${{ github.sha }}" \
-          || gh release upload "build-${{ github.run_number }}" "$APK" --clobber
+          || gh release upload "build-$N" "$CLUB" --clobber
+          # Digital Billboard (slides only, for the other screens): signage-N
+          SIGN="DigitalBillboard-1.0.$N.apk"
+          cp app/build/outputs/apk/signage/release/app-signage-release.apk "$SIGN"
+          gh release create "signage-$N" "$SIGN" \
+            --prerelease \
+            --title "Digital Billboard 1.0.$N" \
+            --notes "Built from commit ${{ github.sha }}" \
+          || gh release upload "signage-$N" "$SIGN" --clobber
+          # Poker Timer on its own: poker-N (only when asked for)
+          if [ "$WITH_POKER" = "true" ]; then
+            POKER="PokerTimer-1.0.$N.apk"
+            cp app/build/outputs/apk/poker/release/app-poker-release.apk "$POKER"
+            gh release create "poker-$N" "$POKER" \
+              --prerelease \
+              --title "Poker Timer 1.0.$N" \
+              --notes "Built from commit ${{ github.sha }}" \
+            || gh release upload "poker-$N" "$POKER" --clobber
+          fi

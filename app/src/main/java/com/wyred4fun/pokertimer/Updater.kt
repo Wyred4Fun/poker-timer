@@ -56,13 +56,15 @@ object Updater {
         }
     }
 
-    /** The highest build-N release that has an APK attached. */
-    fun pick(json: String): Release? {
+    /** The highest release for this version (build-N for Catalpa Club Poker Timer, poker-N for Poker Timer) with an APK. */
+    fun pick(json: String, tag: String = BuildConfig.RELEASE_TAG): Release? {
             val arr = JSONArray(json)
             var best: Release? = null
             for (i in 0 until arr.length()) {
                 val r = arr.getJSONObject(i)
-                val n = r.optString("tag_name").removePrefix("build-").toIntOrNull() ?: continue
+                val name = r.optString("tag_name")
+                if (!name.startsWith(tag)) continue
+                val n = name.removePrefix(tag).toIntOrNull() ?: continue
                 val assets = r.optJSONArray("assets") ?: continue
                 for (j in 0 until assets.length()) {
                     val a = assets.getJSONObject(j)

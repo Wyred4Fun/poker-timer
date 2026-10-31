@@ -55,6 +55,16 @@ class MainActivity : Activity(), TimerEngine.Listener {
     private var backPressedAt = 0L
     /** Last time the remote was pressed on this screen. */
     private var lastKeyAt = 0L
+    /** The Friday countdown screen laid over the timer, and until when a remote press keeps it out of the way. */
+    private lateinit var preGame: PreGameView
+    private var preGameShown = false
+    private var preGamePeekUntil = 0L
+    private var preGameOn = true
+    private var backFromSetup = false
+    /** The club billboard (slides), shown when poker isn't on. */
+    private lateinit var billboard: BillboardView
+    private var billboardShown = false
+    private var billboardOn = true
     private var resumed = false
 
     private val ticker = object : Runnable {
@@ -71,6 +81,9 @@ class MainActivity : Activity(), TimerEngine.Listener {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (BuildConfig.SIGNAGE) {   // the billboard-only app has no timer: go straight to the slides
+            startActivity(Intent(this, SignageActivity::class.java)); finish(); return
+        }
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         Announcer.init(this)
         Theme.apply(Prefs.theme(this)); themeShown = Prefs.theme(this)
@@ -80,6 +93,7 @@ class MainActivity : Activity(), TimerEngine.Listener {
         live = engine
         engine.testMode = Prefs.testMode(this)
         restoreState()
+        PreGame.schedule(this)
         setContentView(build())
         playBtn.requestFocus()
     }
@@ -88,6 +102,8 @@ class MainActivity : Activity(), TimerEngine.Listener {
         super.onResume()
         if (Prefs.theme(this) != themeShown) { recreate(); return }
         useChips = Prefs.chips(this)
+        preGameOn = PreGame.enabled(this)
+        billboardOn = Billboard.enabled(this)
         resumed = true
         lastKeyAt = SystemClock.elapsedRealtime()
         // pick up any changes made on the Setup screen
@@ -100,10 +116,14 @@ class MainActivity : Activity(), TimerEngine.Listener {
         engine.setLevels(Lineup.load(this), now)
         handler.removeCallbacks(ticker)
         handler.post(ticker)
+        if (backFromSetup) { backFromSetup = false; preGamePeekUntil = now + IDLE_SNAP_MS }
+        // coming back to this screen (from Setup or anywhere) always lands on Start / Pause
+        if (::playBtn.isInitialized) playBtn.requestFocus()
     }
 
     override fun onPause() {
         super.onPause()
+        if (BuildConfig.SIGNAGE) return
         resumed = false
         // the clock (and its sounds) keep going while Setup is open
         saveState()
@@ -111,7 +131,10 @@ class MainActivity : Activity(), TimerEngine.Listener {
 
     override fun onDestroy() {
         super.onDestroy()
+        if (BuildConfig.SIGNAGE) return   // this app only hands over to the billboard screen
         Countdown.cancel()
+        if (::billboard.isInitialized) billboard.stop()
+        if (::preGame.isInitialized) preGame.stopPops()
         handler.removeCallbacks(ticker)
         saveState()
         if (live === engine) live = null
@@ -122,6 +145,8 @@ class MainActivity : Activity(), TimerEngine.Listener {
         var live: TimerEngine? = null
         /** When the night started (wall clock ms, 0 = not started), for Setup's game timer. */
         var gameStartedAt = 0L
+        /** Tests only: show the countdown and billboard even under the test runner. */
+        var forceOverlays = false
         const val IDLE_SNAP_MS = 90_000L
     }
 
@@ -284,7 +309,14 @@ class MainActivity : Activity(), TimerEngine.Listener {
 
     /** Any remote press counts as "touched" (checked before the buttons see it). */
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
-        lastKeyAt = SystemClock.elapsedRealtime()
+        val now = SystemClock.elapsedRealtime()
+        lastKeyAt = now
+        if (event.action == KeyEvent.ACTION_DOWN) {
+            // any press puts the Friday countdown aside for 90 seconds (it comes back if Start isn't pressed)
+            val wasShowing = preGameShown || billboardShown
+            preGamePeekUntil = now + IDLE_SNAP_MS
+            if (wasShowing) { render(); playBtn.requestFocus(); return true }
+        }
         return super.dispatchKeyEvent(event)
     }
 
@@ -347,6 +379,7 @@ class MainActivity : Activity(), TimerEngine.Listener {
 
     private fun render() {
         val now = SystemClock.elapsedRealtime()
+        renderPreGame(now)
         val cur = engine.current
         val nx = engine.next
         val s = engine.secondsLeft(now)
@@ -461,6 +494,35 @@ class MainActivity : Activity(), TimerEngine.Listener {
     }
 
     /** "11:43 PM", or "23:43" if the box is set to a 24-hour clock. */
+    /**
+     * Over the timer: the Friday countdown (Thursday 5 PM until Start), else the club billboard
+     * whenever poker isn't on. A remote press puts either aside for 90 seconds.
+     */
+    private fun renderPreGame(now: Long) {
+        if (!::preGame.isInitialized) return
+        val wall = PreGame.clock()
+        val aside = now < preGamePeekUntil || !overlaysAllowed()
+        val show = !aside && preGameOn && PreGame.showing(wall, startedAt, engine.running)
+        if (show != preGameShown) {
+            preGameShown = show
+            preGame.visibility = if (show) View.VISIBLE else View.GONE
+            if (show) preGame.startPops() else preGame.stopPops()
+        }
+        if (show) {
+            preGame.setLineup(engine.levels)
+            preGame.update(wall, timeOfDay(wall), now)
+        }
+        val bill = !aside && !show && billboardOn && Billboard.wanted(wall, startedAt, engine.running, engine.finished)
+        if (bill != billboardShown) {
+            billboardShown = bill
+            billboard.visibility = if (bill) View.VISIBLE else View.GONE
+            if (bill) billboard.start() else billboard.stop()
+        }
+    }
+
+    /** The screen tests switch these off unless a test asks for them. */
+    private fun overlaysAllowed() = forceOverlays || android.os.Build.FINGERPRINT != "robolectric"
+
     private fun timeOfDay(ms: Long): String {
         val f = if (android.text.format.DateFormat.is24HourFormat(this)) "H:mm" else "h:mm a"
         return java.text.SimpleDateFormat(f, java.util.Locale.US).format(java.util.Date(ms)).uppercase()
@@ -572,7 +634,11 @@ class MainActivity : Activity(), TimerEngine.Listener {
         stopBtn = ui.button("Stop").apply { ui.icon(this, Icon.STOP, C.CREAM, 26f); setOnClickListener { stop() } }
         val setup = ui.button("Setup").apply {
             ui.icon(this, Icon.SLIDERS, C.CREAM)
-            setOnClickListener { startActivity(Intent(this@MainActivity, SetupActivity::class.java)) }
+            setOnClickListener {
+                // back from Setup shows the timer itself for a while, not the slides
+                backFromSetup = true
+                startActivity(Intent(this@MainActivity, SetupActivity::class.java))
+            }
         }
         resetAllBtn = ui.button("Reset tournament").apply { ui.icon(this, Icon.RESET, C.CREAM, 26f); setOnClickListener { resetTournament() } }
         for ((i, b) in listOf(back, playBtn, reset, skip, stopBtn, resetAllBtn).withIndex()) {
@@ -581,6 +647,12 @@ class MainActivity : Activity(), TimerEngine.Listener {
         controls.addView(View(this), ui.lp(0, 1, 1f))
         controls.addView(setup)
         body.addView(controls, ui.lp(ui.MATCH, ui.WRAP).apply { topMargin = ui.px(24) })
+
+        // the club billboard, then the Friday countdown on top of everything
+        billboard = BillboardView(this).apply { visibility = View.GONE }
+        root.addView(billboard, FrameLayout.LayoutParams(-1, -1))
+        preGame = PreGameView(this, ui).apply { visibility = View.GONE }
+        root.addView(preGame, FrameLayout.LayoutParams(-1, -1))
 
         render()
         return root

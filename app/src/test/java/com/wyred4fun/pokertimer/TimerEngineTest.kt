@@ -306,6 +306,52 @@ class TimerEngineTest {
         assertEquals(5, r3.log.count { it.startsWith("knock") })
     }
 
+    /** A local date and time (2026-10-29 is a Thursday). */
+    private fun at(day: Int, h: Int, m: Int = 0, sec: Int = 0): Long =
+        java.util.Calendar.getInstance().apply { clear(); set(2026, java.util.Calendar.OCTOBER, day, h, m, sec) }.timeInMillis
+
+    @Test fun fridayCountdownWindow() {
+        // Thursday 4:59 PM: not yet; 5:00 PM: up, counting to Friday 7:30 PM (26 h 30 min away)
+        assertFalse(PreGame.showing(at(29, 16, 59), 0, false))
+        assertTrue(PreGame.showing(at(29, 17, 0), 0, false))
+        assertEquals(at(30, 19, 30), PreGame.window(at(29, 17, 0)).gameAt)
+        assertEquals(26L * 3600 + 30 * 60, (PreGame.window(at(29, 17, 0)).gameAt - at(29, 17, 0)) / 1000)
+        // opened later: just the time that is left
+        assertEquals(at(30, 19, 30), PreGame.window(at(30, 18, 0)).gameAt)
+        // after 7:30 on Friday it stays up (Shuffle up and deal) until Start is pressed or Friday ends
+        assertTrue(PreGame.showing(at(30, 20, 15), 0, false))
+        assertFalse(PreGame.showing(at(31, 0, 0), 0, false))
+        // Start pressed (or the clock running) takes it away; last week's start doesn't count
+        assertFalse(PreGame.showing(at(30, 19, 0), at(30, 18, 55), false))
+        assertFalse(PreGame.showing(at(30, 19, 0), 0, true))
+        assertTrue(PreGame.showing(at(30, 19, 0), at(23, 19, 30), false))
+        // other days: nothing
+        assertFalse(PreGame.showing(at(27, 19, 0), 0, false))
+        assertFalse(PreGame.showing(at(31, 12, 0), 0, false))
+        // the app opens itself on the next Thursday at 5 PM
+        assertEquals(at(29, 17, 0), PreGame.nextPopUp(at(27, 9, 0)))
+        assertEquals(at(29, 17, 0), PreGame.nextPopUp(at(29, 16, 59)))
+        assertEquals(java.util.Calendar.getInstance().apply { clear(); set(2026, java.util.Calendar.NOVEMBER, 5, 17, 0) }.timeInMillis,
+            PreGame.nextPopUp(at(29, 17, 0, 1)))
+    }
+
+    @Test fun billboardRules() {
+        val now = at(31, 14, 0)
+        assertTrue(Billboard.wanted(now, 0, false, false))                 // night not started
+        assertFalse(Billboard.wanted(now, now - 3600_000L, false, false))  // paused mid-game: keep the timer
+        assertFalse(Billboard.wanted(now, now - 3600_000L, true, false))   // running
+        assertTrue(Billboard.wanted(now, now - 3600_000L, false, true))    // final level done
+        assertTrue(Billboard.wanted(now, now - 11 * 3600_000L, false, false)) // left paused overnight
+        // event slides come off after their night; the rest stay
+        assertEquals(java.util.Calendar.getInstance().apply { clear(); set(2026, java.util.Calendar.NOVEMBER, 1, 3, 0) }.timeInMillis,
+            Billboard.expiresAt("06_fall.jpg"))
+        assertEquals(null, Billboard.expiresAt("01_holdem.jpg"))
+        assertEquals(java.util.Calendar.getInstance().apply { clear(); set(2026, java.util.Calendar.NOVEMBER, 16, 0, 0) }.timeInMillis,
+            Billboard.startsAt("20_thanks_giving.jpg"))
+        assertEquals(null, Billboard.startsAt("01_holdem.jpg"))
+        for (i in 0 until 200) { val h = Billboard.holdMs(); assertTrue(h in 60_000L..120_000L) }
+    }
+
     @Test fun addingLevelAfterFinishCarriesOn() {
         val e = TimerEngine(Lineup.DEFAULT, Rec())
         e.carryOn = false
