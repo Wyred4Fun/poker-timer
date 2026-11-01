@@ -74,6 +74,7 @@ class MainActivity : Activity(), TimerEngine.Listener {
     private val ticker = object : Runnable {
         override fun run() {
             engine.update(SystemClock.elapsedRealtime())
+            fridayNight(SystemClock.elapsedRealtime())
             snapBackIfIdle()
             render()
             val now = SystemClock.elapsedRealtime()
@@ -346,6 +347,69 @@ class MainActivity : Activity(), TimerEngine.Listener {
     /** A held Menu button repeats; only the first press counts. */
     private fun keyHeldMenu(e: KeyEvent) = e.keyCode == KeyEvent.KEYCODE_MENU && e.repeatCount > 0
 
+    private var fridayCheckedAt = -10_000L
+
+    /**
+     * Friday night by itself (Catalpa Club Poker Timer, with "Friday game auto-start" on):
+     * 7:30 PM the timer starts with nobody pressing anything, and Saturday 2:00 AM the night is reset so the billboard takes over.
+     */
+    private fun fridayNight(now: Long) {
+        if (!BuildConfig.CLUB || now - fridayCheckedAt < 1000) return
+        fridayCheckedAt = now
+        val wall = PreGame.clock()
+        val sp = getSharedPreferences("poker_timer", MODE_PRIVATE)
+        // Saturday 2 AM: reset (the very first look just records where we are, so installing mid-game never wipes it)
+        val on = PreGame.enabled(this)      // read fresh: the switch may have just been changed in Setup
+        val w0 = PreGame.window(wall)
+        val lastEnd = PreGame.lastEnd(wall)
+        val rolled = sp.getLong("rolledFor", 0L)
+        if (lastEnd > rolled) {             // (a clock that jumps backwards never counts as a new night)
+            sp.edit().putLong("rolledFor", lastEnd).apply()
+            if (rolled != 0L && on) {
+                Announcer.hush()
+                engine.stopAll()
+                startedAt = 0L
+                flashUntil = 0
+                forceCountdown = false
+                setBillboardMode(false)
+                saveState(); render()
+            }
+        }
+        // somebody started the night by hand: the automatic start is spent, even if they reset later
+        if (wall >= w0.showFrom && wall < w0.endsAt && (engine.running || startedAt >= w0.showFrom) && sp.getLong("autoStartedFor", 0L) < w0.gameAt)
+            sp.edit().putLong("autoStartedFor", w0.gameAt).apply()
+        // 6:00, 6:30, 7:00 and 7:15 PM: a chime and "Poker starts in ..." (only if the timer isn't running yet; an app opened late skips the ones that are over)
+        if (on && !engine.running && wall >= w0.showFrom && wall < w0.gameAt) {
+            val done = (sp.getString("announced", "") ?: "").let { v -> if (v.startsWith("${w0.gameAt}:")) v.substringAfter(':').split(',').filter { it.isNotEmpty() } else emptyList() }
+            for (min in PreGame.HEADS_UP_MIN) {
+                val at = w0.gameAt - min * 60_000L
+                if (wall in at until at + 2 * 60_000L && min.toString() !in done) {
+                    sp.edit().putString("announced", "${w0.gameAt}:" + (done + min.toString()).joinToString(",")).apply()
+                    Announcer.chime()
+                    Announcer.say(PreGame.headsUp(min), 1200)
+                    break
+                }
+            }
+        }
+        // 7:30 PM Friday: start, once per Friday, unless someone already started the night
+        val w = w0
+        if (on && wall >= w.gameAt && wall < w.endsAt && sp.getLong("autoStartedFor", 0L) < w.gameAt &&
+            startedAt < w.showFrom && !engine.running) {
+            sp.edit().putLong("autoStartedFor", w.gameAt).apply()
+            Announcer.hush()
+            engine.stopAll()                 // a clean Level 1, whatever was left over
+            engine.start(now)
+            startedAt = wall
+            flashUntil = 0
+            forceCountdown = false
+            setBillboardMode(false)
+            preGamePeekUntil = 0
+            saveState(); render()
+            // it opens on the clock with Pause highlighted: OK pauses it, OK again starts it
+            if (resumed) playBtn.requestFocus()
+        }
+    }
+
     /** Asked to come back to the front with the countdown (from Setup > Billboard images). */
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
@@ -545,7 +609,7 @@ class MainActivity : Activity(), TimerEngine.Listener {
 
     /** "11:43 PM", or "23:43" if the box is set to a 24-hour clock. */
     /**
-     * Over the timer: the Friday countdown (Thursday 5 PM until Start), else the club billboard
+     * Over the timer: the Friday countdown (Friday 5 PM until the game starts by itself at 7:30), else the club billboard
      * whenever poker isn't on. A remote press puts either aside for 90 seconds.
      */
     private fun renderPreGame(now: Long) {
@@ -553,8 +617,12 @@ class MainActivity : Activity(), TimerEngine.Listener {
         val wall = PreGame.clock()
         if (billboardMode && engine.running) setBillboardMode(false)   // poker is on: back to the normal rules
         val aside = now < preGamePeekUntil || !overlaysAllowed()
+        // the slides want the screen (poker isn't on); the countdown takes the last 3 minutes of every quarter hour
+        val slidesWanted = !aside && billboardOn && (billboardMode || Billboard.wanted(wall, startedAt, engine.running, engine.finished)) &&
+            !engine.running && billboardHasSlides(now, wall)
+        val rotate = slidesWanted && preGameOn && BuildConfig.CLUB && PreGame.rotationSlot(wall)
         val show = !aside && !engine.running &&
-            ((preGameOn && PreGame.showing(wall, startedAt, engine.running)) || (forceCountdown && BuildConfig.CLUB))
+            ((preGameOn && PreGame.showing(wall, startedAt, engine.running)) || (forceCountdown && BuildConfig.CLUB) || rotate)
         if (show != preGameShown) {
             preGameShown = show
             preGame.visibility = if (show) View.VISIBLE else View.GONE
@@ -564,7 +632,7 @@ class MainActivity : Activity(), TimerEngine.Listener {
             preGame.setLineup(engine.levels)
             preGame.update(wall, timeOfDay(wall), now)
         }
-        val bill = !aside && !show && billboardOn && (billboardMode || Billboard.wanted(wall, startedAt, engine.running, engine.finished)) && !engine.running && billboardHasSlides(now, wall)
+        val bill = slidesWanted && !show
         if (bill != billboardShown) {
             billboardShown = bill
             billboard.visibility = if (bill) View.VISIBLE else View.GONE

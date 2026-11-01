@@ -262,7 +262,7 @@ class SetupActivity : Activity() {
         val on = Prefs.openAtStartup(this)
         toggleText(startupBtn, if (on) "Open at startup:  On" else "Open at startup:  Off", on)
         val pre = PreGame.enabled(this)
-        if (::preGameBtn.isInitialized) toggleText(preGameBtn, if (pre) "Friday countdown:  On" else "Friday countdown:  Off", pre)
+        if (::preGameBtn.isInitialized) toggleText(preGameBtn, if (pre) "Friday game auto-start:  On" else "Friday game auto-start:  Off", pre)
         // opening at startup needs "Display over other apps" on Android 10 and later
         val needs = on && !startupAllowed()
         startupNote.visibility = if (needs || on) View.VISIBLE else View.GONE
@@ -593,7 +593,7 @@ class SetupActivity : Activity() {
         }
         val doneRow = ui.row().apply { gravity = Gravity.END }
         if (BuildConfig.CLUB) {
-            // leave the timer and run the club billboard (slides all week, the countdown Thursday 5 PM to Friday 7:30 PM)
+            // leave the timer and run the club billboard (slides all week, the countdown Friday 5 PM to 7:30 PM)
             val activate = ui.button("Activate billboard", height = 76f, textSize = 28f).apply {
                 setPadding(ui.px(36), 0, ui.px(36), 0)
                 setOnClickListener {
@@ -670,8 +670,8 @@ class SetupActivity : Activity() {
         gap(startupBtn, 5)
         startupNote = ui.text(20f, C.MUTED, ui.bold).apply { setSingleLine(true); ellipsize = android.text.TextUtils.TruncateAt.END }
         right.addView(startupNote, ui.lp(ui.MATCH, ui.WRAP).apply { topMargin = ui.px(4) })
-        // Thursday 5 PM to Friday 7:30 PM: the "Poker starts sharp at 7:30" countdown shows while the app is open
-        preGameBtn = ui.button("Friday countdown", height = 44f, textSize = 28f).apply {
+        // Friday 5 PM countdown, 7:30 PM the game starts by itself, Saturday 2 AM back to the billboard (app must be open)
+        preGameBtn = ui.button("Friday game auto-start", height = 44f, textSize = 28f).apply {
             gravity = Gravity.CENTER_VERTICAL
             setPadding(ui.px(26), 0, ui.px(26), 0)
             background = ui.pillBg(C.FELT, C.EDGE, C.PANEL_HI, C.GOLD, 20f)

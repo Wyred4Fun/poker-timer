@@ -311,16 +311,23 @@ class TimerEngineTest {
         java.util.Calendar.getInstance().apply { clear(); set(2026, java.util.Calendar.OCTOBER, day, h, m, sec) }.timeInMillis
 
     @Test fun fridayCountdownWindow() {
-        // Thursday 4:59 PM: not yet; 5:00 PM: up, counting to Friday 7:30 PM (26 h 30 min away)
-        assertFalse(PreGame.showing(at(29, 16, 59), 0, false))
-        assertTrue(PreGame.showing(at(29, 17, 0), 0, false))
+        // Friday 4:59 PM: not yet; 5:00 PM: up, counting to 7:30 PM (2 h 30 min away)
+        assertFalse(PreGame.showing(at(30, 16, 59), 0, false))
+        assertTrue(PreGame.showing(at(30, 17, 0), 0, false))
+        assertEquals(at(30, 19, 30), PreGame.window(at(30, 17, 0)).gameAt)
+        assertEquals(2L * 3600 + 30 * 60, (PreGame.window(at(30, 17, 0)).gameAt - at(30, 17, 0)) / 1000)
+        // Thursday: nothing any more (the countdown starts Friday at 5), but it already knows which Friday is next
+        assertFalse(PreGame.showing(at(29, 17, 0), 0, false))
         assertEquals(at(30, 19, 30), PreGame.window(at(29, 17, 0)).gameAt)
-        assertEquals(26L * 3600 + 30 * 60, (PreGame.window(at(29, 17, 0)).gameAt - at(29, 17, 0)) / 1000)
-        // opened later: just the time that is left
-        assertEquals(at(30, 19, 30), PreGame.window(at(30, 18, 0)).gameAt)
-        // after 7:30 on Friday it stays up (Shuffle up and deal) until Start is pressed or Friday ends
+        // the night belongs to Friday until 2 AM Saturday
+        assertEquals(at(30, 19, 30), PreGame.window(at(31, 1, 59)).gameAt)
+        assertEquals(at(31, 2, 0), PreGame.window(at(31, 1, 59)).endsAt)
+        assertEquals(at(6, 19, 30).let { java.util.Calendar.getInstance().apply { clear(); set(2026, java.util.Calendar.NOVEMBER, 6, 19, 30) }.timeInMillis },
+            PreGame.window(at(31, 2, 0)).gameAt)
+        // after 7:30 with nobody started it stays up until 2 AM, then it is over
         assertTrue(PreGame.showing(at(30, 20, 15), 0, false))
-        assertFalse(PreGame.showing(at(31, 0, 0), 0, false))
+        assertTrue(PreGame.showing(at(31, 1, 59), 0, false))
+        assertFalse(PreGame.showing(at(31, 2, 0), 0, false))
         // Start pressed (or the clock running) takes it away; last week's start doesn't count
         assertFalse(PreGame.showing(at(30, 19, 0), at(30, 18, 55), false))
         assertFalse(PreGame.showing(at(30, 19, 0), 0, true))
@@ -328,11 +335,17 @@ class TimerEngineTest {
         // other days: nothing
         assertFalse(PreGame.showing(at(27, 19, 0), 0, false))
         assertFalse(PreGame.showing(at(31, 12, 0), 0, false))
-        // the app opens itself on the next Thursday at 5 PM
-        assertEquals(at(29, 17, 0), PreGame.nextPopUp(at(27, 9, 0)))
-        assertEquals(at(29, 17, 0), PreGame.nextPopUp(at(29, 16, 59)))
-        assertEquals(java.util.Calendar.getInstance().apply { clear(); set(2026, java.util.Calendar.NOVEMBER, 5, 17, 0) }.timeInMillis,
-            PreGame.nextPopUp(at(29, 17, 0, 1)))
+        // the last 2 AM Saturday
+        assertEquals(at(31, 2, 0), PreGame.lastEnd(at(31, 2, 0, 1)))
+        assertEquals(at(24, 2, 0), PreGame.lastEnd(at(31, 1, 59)))
+        assertEquals(at(24, 2, 0), PreGame.lastEnd(at(28, 12, 0)))
+        assertEquals(at(31, 2, 0), PreGame.lastEnd(at(31, 12, 0)))
+        // the countdown's turn between slides: the last 3 minutes of each quarter hour
+        assertFalse(PreGame.rotationSlot(at(28, 14, 11, 59)))
+        assertTrue(PreGame.rotationSlot(at(28, 14, 12, 0)))
+        assertTrue(PreGame.rotationSlot(at(28, 14, 14, 59)))
+        assertFalse(PreGame.rotationSlot(at(28, 14, 15, 0)))
+        assertTrue(PreGame.rotationSlot(at(28, 14, 57, 0)))
     }
 
     @Test fun billboardRules() {
