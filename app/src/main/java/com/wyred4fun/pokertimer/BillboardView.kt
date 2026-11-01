@@ -49,7 +49,7 @@ class BillboardView(ctx: Context) : FrameLayout(ctx) {
         Thread {
             val bmp = try {
                 context.assets.open("slides/$name").use {
-                    BitmapFactory.decodeStream(it, null, BitmapFactory.Options().apply { inPreferredConfig = Bitmap.Config.RGB_565 })
+                    BitmapFactory.decodeStream(it, null, BitmapFactory.Options().apply { inPreferredConfig = Bitmap.Config.ARGB_8888 })   // full colour: 16-bit colour made dark gradients band
                 }
             } catch (e: Exception) { null }
             main.post {
