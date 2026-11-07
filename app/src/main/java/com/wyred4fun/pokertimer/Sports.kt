@@ -33,7 +33,8 @@ object Sports {
         Team("msufb", "football/college-football", "127", "MSU FOOTBALL", "MSU", 0xFF2BB673.toInt()),
         Team("umfb", "football/college-football", "130", "MICHIGAN FOOTBALL", "Michigan", 0xFFFFCB05.toInt()),
         Team("msubb", "basketball/mens-college-basketball", "127", "MSU BASKETBALL", "MSU", 0xFF2BB673.toInt()),
-        Team("umbb", "basketball/mens-college-basketball", "130", "MICHIGAN BASKETBALL", "Michigan", 0xFFFFCB05.toInt())
+        Team("umbb", "basketball/mens-college-basketball", "130", "MICHIGAN BASKETBALL", "Michigan", 0xFFFFCB05.toInt()),
+        Team("tigers", "baseball/mlb", "6", "TIGERS", "Tigers", 0xFFFF8A33.toInt())   // no slide of its own: used for the home run special
     )
 
     /** slide name -> title, team keys */
@@ -50,7 +51,7 @@ object Sports {
     )
 
     /** One game. [us] and [them] are -1 until there is a score. [state] is ESPN's: pre, in or post. */
-    class Game(val at: Long, val home: Boolean, val opp: String, val us: Int, val them: Int, val state: String, val detail: String)
+    class Game(val at: Long, val home: Boolean, val opp: String, val us: Int, val them: Int, val state: String, val detail: String, val id: String = "")
     class Snap(val last: Game?, val live: Game?, val next: List<Game>, val count: Int = 0)
 
     private const val PREFS = "poker_timer"
@@ -68,8 +69,8 @@ object Sports {
     }
 
     /** ESPN's date ("2026-09-13T17:00Z", sometimes with seconds) in milliseconds, or -1 if it can't be read. */
-    private fun parseDate(s: String): Long {
-        for (p in listOf("yyyy-MM-dd'T'HH:mm'Z'", "yyyy-MM-dd'T'HH:mm:ss'Z'")) {
+    fun parseDate(s: String): Long {
+        for (p in listOf("yyyy-MM-dd'T'HH:mm'Z'", "yyyy-MM-dd'T'HH:mm:ss'Z'", "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'")) {
             try { return SimpleDateFormat(p, Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }.parse(s)!!.time } catch (e: Exception) { }
         }
         return -1L
@@ -100,7 +101,7 @@ object Sports {
                 val su = scoreOf(us); val sv = scoreOf(them)
                 if (at < 0) continue
                 if (state == "post" && (su < 0 || sv < 0)) continue      // postponed or canceled: not a result
-                games.add(Game(at, us.optString("homeAway") == "home", opp, su, sv, state, str(st, "shortDetail") ?: ""))
+                games.add(Game(at, us.optString("homeAway") == "home", opp, su, sv, state, str(st, "shortDetail") ?: "", e.optString("id", "")))
             } catch (x: Exception) { /* skip an odd entry */ }
         }
         games.sortBy { it.at }
@@ -111,10 +112,10 @@ object Sports {
     // ---------- keeping the last answer ----------
 
     private fun gameJson(g: Game) = JSONObject().put("a", g.at).put("h", g.home).put("o", g.opp).put("u", g.us)
-        .put("v", g.them).put("s", g.state).put("d", g.detail)
+        .put("v", g.them).put("s", g.state).put("d", g.detail).put("i", g.id)
 
     private fun gameFrom(o: JSONObject) = Game(o.getLong("a"), o.getBoolean("h"), o.getString("o"), o.getInt("u"),
-        o.getInt("v"), o.getString("s"), o.optString("d", ""))
+        o.getInt("v"), o.getString("s"), o.optString("d", ""), o.optString("i", ""))
 
     fun toJson(s: Snap): String = JSONObject().apply {
         s.last?.let { put("l", gameJson(it)) }
@@ -137,6 +138,9 @@ object Sports {
 
     // ---------- fetching ----------
 
+    /** ESPN's play-by-play for one game. */
+    fun summaryUrl(t: Team, eventId: String) = BASE + t.path + "/summary?event=" + eventId
+
     @Volatile private var busy = false
 
     /** Is a game on right now (as of the last answer)? Then ask more often. */
@@ -144,6 +148,13 @@ object Sports {
         val now = System.currentTimeMillis()
         return TEAMS.any { load(ctx, it.key)?.live?.let { g -> liveFresh(g, now) } == true }
     }
+
+    /** A Red Wings or Tigers game is about to start, or should be on right now (so a minute is the right wait, not ten). */
+    private fun startingSoon(ctx: Context, now: Long): Boolean = SPECIAL_KEYS.any { k ->
+        load(ctx, k)?.next?.firstOrNull()?.let { it.at - now < 10 * 60_000L && now - it.at < 5 * 3600_000L } == true
+    }
+
+    val SPECIAL_KEYS = listOf("wings", "tigers")
 
     /** A game still marked "live" more than 5 hours after it started is old news (the TV was offline). */
     private fun liveFresh(g: Game, now: Long) = now - g.at < 5 * 3600_000L
@@ -156,7 +167,7 @@ object Sports {
         if (busy) return
         val app = ctx.applicationContext
         val p = prefs(app)
-        val every = if (anyLive(app)) 60_000L else 600_000L
+        val every = if (anyLive(app) || startingSoon(app, nowMs)) 60_000L else 600_000L
         if (nowMs - p.getLong("sports_at", 0L) < every) return
         p.edit().putLong("sports_at", nowMs).apply()
         busy = true
@@ -203,7 +214,7 @@ object Sports {
     // ---------- drawing ----------
 
     private var font: Typeface? = null
-    private fun bebas(ctx: Context): Typeface = font ?: (try {
+    fun bebas(ctx: Context): Typeface = font ?: (try {
         Typeface.createFromAsset(ctx.assets, "fonts/BebasNeue-Regular.ttf")
     } catch (e: Exception) { Typeface.create("sans-serif-condensed", Typeface.BOLD) }).also { font = it }
 

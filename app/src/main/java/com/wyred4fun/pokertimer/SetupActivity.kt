@@ -758,6 +758,14 @@ class SetupActivity : Activity() {
                 background = ui.pillBg(C.FELT, C.EDGE, C.PANEL_HI, C.GOLD, 20f)
                 setOnClickListener { startActivity(Intent(this@SetupActivity, SlidesActivity::class.java)) }
             }, 5)
+            // a Tigers home run or a Red Wings goal: siren, then $1 off for 5 minutes
+            gap(switchRow("Home run & goal specials", "specials") { Specials.enabled(this) }, 5)
+            gap(ui.button("Test special", height = 44f, textSize = 28f).apply {
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(ui.px(26), 0, ui.px(26), 0)
+                background = ui.pillBg(C.FELT, C.EDGE, C.PANEL_HI, C.GOLD, 20f)
+                setOnClickListener { startActivity(Intent(this@SetupActivity, AlertTestActivity::class.java)) }
+            }, 5)
         }
         refreshStartup()
         gap(switchRow("Blinds in chips", "chips") { Prefs.chips(this) }, 5)

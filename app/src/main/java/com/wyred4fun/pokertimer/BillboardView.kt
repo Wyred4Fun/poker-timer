@@ -22,17 +22,34 @@ class BillboardView(ctx: Context) : FrameLayout(ctx) {
     private var last: String? = null
     private var running = false
     private var serial = 0
+    private val alert = AlertView(ctx)
 
     init {
         setBackgroundColor(0xFF000000.toInt())
         isClickable = true
         addView(a, LayoutParams(-1, -1))
         addView(b, LayoutParams(-1, -1))
+        addView(alert, LayoutParams(-1, -1))      // the home run / goal siren and banner sit on top
+    }
+
+    /** Every few seconds: show a home run or goal special that is due, and keep the sports data fresh. */
+    private val alertTick = object : Runnable {
+        override fun run() {
+            if (!running) return
+            Sports.refresh(context)
+            Specials.tick(context, System.currentTimeMillis()) { kind, startMs ->
+                alert.show(kind, startMs)
+                if (isShown) Announcer.siren()
+            }
+            main.postDelayed(this, 5_000L)
+        }
     }
 
     fun start() {
         if (running) return
         running = true
+        alert.restore(if (Specials.enabled(context)) Specials.active(context, System.currentTimeMillis()) else null)
+        main.postDelayed(alertTick, 3_000L)
         next()
     }
 

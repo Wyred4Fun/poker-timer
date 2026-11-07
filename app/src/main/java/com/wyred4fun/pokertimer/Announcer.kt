@@ -40,6 +40,7 @@ object Announcer {
         startVoice()
         useKnock(Prefs.knockSound(ctx))
         chimeTrack = makeTrack(chimePcm(), RATE)
+        Thread { sirenTrack = makeTrack(sirenPcm(), RATE) }.start()      // made in the background so the first siren doesn't stutter
     }
 
     private var voiceTriedAt = 0L
@@ -267,6 +268,30 @@ object Announcer {
         t
     } catch (e: Exception) {
         null
+    }
+
+    @Volatile private var sirenTrack: AudioTrack? = null
+
+    /** The home run / goal siren: about 3.5 seconds of a rising and falling wail. */
+    fun siren() {
+        if (!soundsOn()) return
+        play(sirenTrack)
+    }
+
+    fun sirenPcm(): ShortArray {
+        val secs = 3.5
+        val n = (RATE * secs).toInt()
+        val out = FloatArray(n)
+        var phase = 0.0
+        for (i in 0 until n) {
+            val t = i.toDouble() / RATE
+            val sweep = 0.5 - 0.5 * kotlin.math.cos(2 * PI * t / 1.1)          // 0..1..0 about once a second
+            val f = 620.0 + 560.0 * sweep
+            phase += 2 * PI * f / RATE
+            val env = (t / 0.05).coerceAtMost(1.0) * ((secs - t) / 0.25).coerceIn(0.0, 1.0)
+            out[i] = ((sin(phase) + 0.35 * sin(2 * phase)) * env).toFloat()
+        }
+        return toPcm(out, 0.6f)
     }
 
     /** A mellow two-note chime (E then C) with soft edges. */
