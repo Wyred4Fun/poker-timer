@@ -134,7 +134,8 @@ class SlidesActivity : Activity() {
             for (t in tiles) {
                 if (gone) return@Thread
                 val bmp = try {
-                    assets.open("slides/${t.name}").use {
+                    if (t.name.startsWith("@")) Sports.render(this, t.name, 480, 270)
+                    else assets.open("slides/${t.name}").use {
                         BitmapFactory.decodeStream(it, null, BitmapFactory.Options().apply { inSampleSize = 4; inPreferredConfig = Bitmap.Config.RGB_565 })
                     }
                 } catch (e: Exception) { null }

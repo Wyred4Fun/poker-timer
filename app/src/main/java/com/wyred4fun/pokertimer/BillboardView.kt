@@ -46,16 +46,18 @@ class BillboardView(ctx: Context) : FrameLayout(ctx) {
         if (!running) return
         val name = pick() ?: run { main.postDelayed({ next() }, 30_000L); return }
         val my = ++serial
+        Sports.refresh(context)
         Thread {
             val bmp = try {
-                context.assets.open("slides/$name").use {
+                if (name.startsWith("@")) Sports.render(context, name, 1920, 1080)
+                else context.assets.open("slides/$name").use {
                     BitmapFactory.decodeStream(it, null, BitmapFactory.Options().apply { inPreferredConfig = Bitmap.Config.ARGB_8888 })   // full colour: 16-bit colour made dark gradients band
                 }
             } catch (e: Exception) { null }
             main.post {
                 if (my != serial || !running) return@post
                 if (bmp != null) show(bmp)
-                main.postDelayed({ next() }, Billboard.holdMs())
+                main.postDelayed({ next() }, if (bmp == null && name.startsWith("@")) 1_000L else Billboard.holdMs())
             }
         }.start()
     }
@@ -117,7 +119,8 @@ object Billboard {
 
     /** Every slide in the app, in order. */
     fun all(ctx: Context): List<String> =
-        (ctx.assets.list("slides") ?: emptyArray()).filter { it.endsWith(".jpg") }.sorted()
+        (ctx.assets.list("slides") ?: emptyArray()).filter { it.endsWith(".jpg") }.sorted() +
+            Sports.slideNames(ctx, System.currentTimeMillis())   // live sports slides, once the TV has fetched them
 
     /** The slides to show right now: not switched off by hand, and inside their dates. */
     fun current(ctx: Context, now: Long): List<String> {
@@ -151,7 +154,7 @@ object Billboard {
         "19_veterans" to "Veterans Day", "20_thanks_giving" to "Thanksgiving", "21_wifi" to "Member Wi-Fi"
     )
 
-    fun title(name: String): String = TITLES[name.removeSuffix(".jpg")] ?: name.removeSuffix(".jpg")
+    fun title(name: String): String = Sports.TITLES[name] ?: TITLES[name.removeSuffix(".jpg")] ?: name.removeSuffix(".jpg")
 
     /** What the tile says: ON / OFF, with the dates for slides that come and go by themselves. */
     fun status(ctx: Context, name: String, now: Long): String {
