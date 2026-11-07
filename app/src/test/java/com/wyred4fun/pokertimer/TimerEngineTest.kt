@@ -311,27 +311,27 @@ class TimerEngineTest {
         java.util.Calendar.getInstance().apply { clear(); set(2026, java.util.Calendar.OCTOBER, day, h, m, sec) }.timeInMillis
 
     @Test fun fridayCountdownWindow() {
-        // Friday 4:59 PM: not yet; 5:00 PM: up, counting to 7:30 PM (2 h 30 min away)
+        // Friday 4:59 PM: not yet; 5:00 PM: up, counting to 8:00 PM (3 h away)
         assertFalse(PreGame.showing(at(30, 16, 59), 0, false))
         assertTrue(PreGame.showing(at(30, 17, 0), 0, false))
-        assertEquals(at(30, 19, 30), PreGame.window(at(30, 17, 0)).gameAt)
-        assertEquals(2L * 3600 + 30 * 60, (PreGame.window(at(30, 17, 0)).gameAt - at(30, 17, 0)) / 1000)
+        assertEquals(at(30, 20, 0), PreGame.window(at(30, 17, 0)).gameAt)
+        assertEquals(3L * 3600, (PreGame.window(at(30, 17, 0)).gameAt - at(30, 17, 0)) / 1000)
         // Thursday: nothing any more (the countdown starts Friday at 5), but it already knows which Friday is next
         assertFalse(PreGame.showing(at(29, 17, 0), 0, false))
-        assertEquals(at(30, 19, 30), PreGame.window(at(29, 17, 0)).gameAt)
+        assertEquals(at(30, 20, 0), PreGame.window(at(29, 17, 0)).gameAt)
         // the night belongs to Friday until 2 AM Saturday
-        assertEquals(at(30, 19, 30), PreGame.window(at(31, 1, 59)).gameAt)
+        assertEquals(at(30, 20, 0), PreGame.window(at(31, 1, 59)).gameAt)
         assertEquals(at(31, 2, 0), PreGame.window(at(31, 1, 59)).endsAt)
-        assertEquals(at(6, 19, 30).let { java.util.Calendar.getInstance().apply { clear(); set(2026, java.util.Calendar.NOVEMBER, 6, 19, 30) }.timeInMillis },
+        assertEquals(at(6, 20, 0).let { java.util.Calendar.getInstance().apply { clear(); set(2026, java.util.Calendar.NOVEMBER, 6, 20, 0) }.timeInMillis },
             PreGame.window(at(31, 2, 0)).gameAt)
-        // after 7:30 with nobody started it stays up until 2 AM, then it is over
+        // after 8:00 with nobody started it stays up until 2 AM, then it is over
         assertTrue(PreGame.showing(at(30, 20, 15), 0, false))
         assertTrue(PreGame.showing(at(31, 1, 59), 0, false))
         assertFalse(PreGame.showing(at(31, 2, 0), 0, false))
         // Start pressed (or the clock running) takes it away; last week's start doesn't count
         assertFalse(PreGame.showing(at(30, 19, 0), at(30, 18, 55), false))
         assertFalse(PreGame.showing(at(30, 19, 0), 0, true))
-        assertTrue(PreGame.showing(at(30, 19, 0), at(23, 19, 30), false))
+        assertTrue(PreGame.showing(at(30, 19, 0), at(23, 20, 0), false))
         // other days: nothing
         assertFalse(PreGame.showing(at(27, 19, 0), 0, false))
         assertFalse(PreGame.showing(at(31, 12, 0), 0, false))

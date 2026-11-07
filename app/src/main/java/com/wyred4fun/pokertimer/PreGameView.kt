@@ -15,10 +15,11 @@ import android.widget.LinearLayout
 import android.widget.TextView
 
 /**
- * The full-screen Friday countdown ("Poker starts sharp at 7:30 PM") laid over the timer.
+ * The full-screen Friday countdown ("Poker starts sharp at 8:00 PM") laid over the timer.
  * Cards and chips pop up around the edges one at a time.
  */
 class PreGameView(ctx: Context, private val ui: Ui) : FrameLayout(ctx) {
+    private lateinit var startsText: TextView
     private val clockText: TextView
     private val boxes: LinearLayout
     private val hh: TextView
@@ -81,7 +82,8 @@ class PreGameView(ctx: Context, private val ui: Ui) : FrameLayout(ctx) {
         val center = ui.col().apply { gravity = Gravity.CENTER_HORIZONTAL }
         center.addView(ui.text(40f, C.MUTED, ui.bold, 0.3f).apply { text = "POKER STARTS SHARP AT"; gravity = Gravity.CENTER },
             ui.lp(ui.MATCH, ui.WRAP))
-        center.addView(ui.text(250f, C.GOLD, ui.bebas, 0.02f).apply { text = PreGame.STARTS_AT },
+        startsText = ui.text(250f, C.GOLD, ui.bebas, 0.02f).apply { text = PreGame.startsAt() }
+        center.addView(startsText,
             ui.lp(ui.WRAP, ui.WRAP).apply { topMargin = ui.px(14) })
         boxes = ui.row().apply { gravity = Gravity.TOP }
         fun box(label: String): Pair<TextView, View> {
@@ -144,6 +146,7 @@ class PreGameView(ctx: Context, private val ui: Ui) : FrameLayout(ctx) {
 
     /** Call a few times a second while showing. [wall] = System.currentTimeMillis(). */
     fun update(wall: Long, clock: String, uptime: Long) {
+        if (::startsText.isInitialized) set(startsText, PreGame.startsAt())
         if (clockText.text.toString() != clock) clockText.text = clock
         val w = PreGame.window(wall)
         var left = Math.ceil((w.gameAt - wall) / 1000.0).toLong()

@@ -116,6 +116,12 @@ object Prefs {
     fun setTheme(ctx: Context, id: String) {
         ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString("theme", id).apply()
     }
+    fun startCustom(ctx: Context) = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean("startCustom", false)
+
+    fun setStart(ctx: Context, minutes: Int, custom: Boolean) {
+        ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putInt("startMin", minutes).putBoolean("startCustom", custom).apply()
+    }
+
     fun set(ctx: Context, key: String, value: Boolean) {
         ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(key, value).apply()
     }

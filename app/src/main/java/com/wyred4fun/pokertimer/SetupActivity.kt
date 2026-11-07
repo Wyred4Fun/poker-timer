@@ -258,6 +258,34 @@ class SetupActivity : Activity() {
     /** Android 10 and later only let an app open itself at startup with "Display over other apps" allowed. */
     private fun startupAllowed() = Build.VERSION.SDK_INT < 29 || Settings.canDrawOverlays(this)
 
+    private lateinit var startBtn: TextView
+    private lateinit var startRow: LinearLayout
+    private lateinit var startLabel: TextView
+
+    private lateinit var voiceNote: TextView
+    private val voiceTick = object : Runnable {
+        override fun run() { refreshVoice(); Announcer.retryVoice(); if (!Announcer.voiceReady()) voiceNote.postDelayed(this, 3000) }
+    }
+
+    /** Is the TV's speech engine ready? Shows right under the Voice row; keeps checking until it is. */
+    private fun refreshVoice() {
+        if (!::voiceNote.isInitialized) return
+        val ok = Announcer.voiceReady()
+        voiceNote.text = if (ok) "Voice engine: ready" else "Voice engine: starting or not available on this TV"
+        voiceNote.setTextColor(if (ok) C.MUTED else C.GOLD)
+        voiceNote.removeCallbacks(voiceTick)
+        if (!ok) voiceNote.postDelayed(voiceTick, 3000)
+    }
+
+    private fun refreshStart() {
+        if (!::startBtn.isInitialized) return
+        PreGame.loadStart(this)
+        val custom = Prefs.startCustom(this)
+        startBtn.text = "Game start:  " + if (custom) "Custom" else PreGame.startsAt()
+        startRow.visibility = if (custom) View.VISIBLE else View.GONE
+        startLabel.text = PreGame.startsAt()
+    }
+
     private fun refreshStartup() {
         val on = Prefs.openAtStartup(this)
         toggleText(startupBtn, if (on) "Open at startup:  On" else "Open at startup:  Off", on)
@@ -593,7 +621,7 @@ class SetupActivity : Activity() {
         }
         val doneRow = ui.row().apply { gravity = Gravity.END }
         if (BuildConfig.CLUB) {
-            // leave the timer and run the club billboard (slides all week, the countdown Friday 5 PM to 7:30 PM)
+            // leave the timer and run the club billboard (slides all week, the countdown Friday 5 PM to 8:00 PM)
             val activate = ui.button("Activate billboard", height = 76f, textSize = 28f).apply {
                 setPadding(ui.px(36), 0, ui.px(36), 0)
                 setOnClickListener {
@@ -642,6 +670,9 @@ class SetupActivity : Activity() {
                 show()
             }
         }, 5)
+        voiceNote = ui.text(20f, C.MUTED, ui.bold).apply { setSingleLine(true) }
+        right.addView(voiceNote, ui.lp(ui.MATCH, ui.WRAP).apply { topMargin = ui.px(2) })
+        refreshVoice()
         knockBtn = ui.button("Notification sound", height = 44f, textSize = 28f).apply {
             gravity = Gravity.CENTER_VERTICAL
             setPadding(ui.px(26), 0, ui.px(26), 0)
@@ -670,7 +701,38 @@ class SetupActivity : Activity() {
         gap(startupBtn, 5)
         startupNote = ui.text(20f, C.MUTED, ui.bold).apply { setSingleLine(true); ellipsize = android.text.TextUtils.TruncateAt.END }
         right.addView(startupNote, ui.lp(ui.MATCH, ui.WRAP).apply { topMargin = ui.px(4) })
-        // Friday 5 PM countdown, 7:30 PM the game starts by itself, Saturday 2 AM back to the billboard (app must be open)
+        startBtn = ui.button("Game start", height = 44f, textSize = 28f).apply {
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(ui.px(26), 0, ui.px(26), 0)
+            background = ui.pillBg(C.FELT, C.EDGE, C.PANEL_HI, C.GOLD, 20f)
+            // OK steps 7:30 PM -> 8:00 PM -> Custom -> 7:30 PM
+            setOnClickListener {
+                val custom = Prefs.startCustom(this@SetupActivity)
+                val cur = PreGame.gameMinutes
+                when {
+                    custom -> { Prefs.setStart(this@SetupActivity, 19 * 60 + 30, false) }
+                    cur == 19 * 60 + 30 -> { Prefs.setStart(this@SetupActivity, 20 * 60, false) }
+                    else -> { Prefs.setStart(this@SetupActivity, if (cur == 20 * 60) cur else 20 * 60, true) }
+                }
+                PreGame.loadStart(this@SetupActivity); refreshStart()
+            }
+        }
+        fun stepBtn(label: String, delta: Int) = ui.button(label, height = 44f, textSize = 28f).apply {
+            background = ui.pillBg(C.FELT, C.EDGE, C.PANEL_HI, C.GOLD, 20f)
+            setOnClickListener {
+                val nv = (PreGame.gameMinutes + delta).coerceIn(PreGame.START_MIN, PreGame.START_MAX)
+                Prefs.setStart(this@SetupActivity, nv, true)
+                PreGame.loadStart(this@SetupActivity); refreshStart()
+            }
+        }
+        startLabel = ui.text(28f, C.CREAM, ui.bold).apply { gravity = Gravity.CENTER }
+        startRow = ui.row().apply {
+            gravity = Gravity.CENTER_VERTICAL
+            addView(stepBtn("\u2212 15 min", -15), ui.lp(0, ui.WRAP, 1f))
+            addView(startLabel, ui.lp(0, ui.WRAP, 1f))
+            addView(stepBtn("+ 15 min", 15), ui.lp(0, ui.WRAP, 1f))
+        }
+        // Friday 5 PM countdown, 8:00 PM the game starts by itself, Saturday 2 AM back to the billboard (app must be open)
         preGameBtn = ui.button("Friday game auto-start", height = 44f, textSize = 28f).apply {
             gravity = Gravity.CENTER_VERTICAL
             setPadding(ui.px(26), 0, ui.px(26), 0)
@@ -684,6 +746,10 @@ class SetupActivity : Activity() {
         // the Friday countdown and the slides are only in the Catalpa Club Poker Timer version
         if (BuildConfig.CLUB) {
             gap(preGameBtn, 5)
+            // when the game starts by itself: 7:30 PM, 8:00 PM, or a custom time in 15-minute steps
+            gap(startBtn, 5)
+            gap(startRow, 5)
+            refreshStart()
             gap(switchRow("Club billboard slides", "billboard") { Billboard.enabled(this) }, 5)
             // which pictures are in the billboard: see them all, switch each on or off
             gap(ui.button("Billboard images  \u203A", height = 44f, textSize = 28f).apply {

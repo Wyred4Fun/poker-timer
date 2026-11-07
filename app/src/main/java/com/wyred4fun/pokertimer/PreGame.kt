@@ -9,8 +9,8 @@ import java.util.Calendar
 
 /**
  * Friday night, by itself:
- *  - Friday 5:00 PM: the "Poker starts sharp at 7:30 PM" countdown comes up and stays up.
- *  - Friday 7:30 PM: the game starts with no one touching anything (Start is already pressed; OK pauses it).
+ *  - Friday 5:00 PM: the "Poker starts sharp at 8:00 PM" countdown comes up and stays up.
+ *  - Friday 8:00 PM: the game starts with no one touching anything (Start is already pressed; OK pauses it).
  *  - Saturday 2:00 AM: the night is reset and the club billboard takes over again.
  *  - Saturday to Friday afternoon: the countdown takes the last 3 minutes of every quarter hour between slides.
  * It only runs while the app is open on the TV; the app does not open itself for it.
@@ -18,11 +18,27 @@ import java.util.Calendar
 object PreGame {
     const val GAME_DAY = Calendar.FRIDAY
     const val SHOW_HOUR = 17          // Friday 5:00 PM
-    const val GAME_HOUR = 19
-    const val GAME_MINUTE = 30        // Friday 7:30 PM
     const val END_HOUR = 2            // Saturday 2:00 AM
     const val TITLE = "FRIDAY NIGHT GAME"
-    const val STARTS_AT = "7:30 PM"
+
+    /** Game start, minutes after midnight (Setup: 7:30 PM, 8:00 PM or custom). Default 8:00 PM. */
+    const val DEFAULT_START = 20 * 60
+    const val START_MIN = 17 * 60 + 30   // custom range: 5:30 PM ...
+    const val START_MAX = 23 * 60 + 30   // ... to 11:30 PM
+    @Volatile var gameMinutes = DEFAULT_START
+
+    /** Reads the saved start time (call whenever the app comes forward or Setup changes it). */
+    fun loadStart(ctx: android.content.Context) {
+        val v = ctx.getSharedPreferences("poker_timer", android.content.Context.MODE_PRIVATE).getInt("startMin", DEFAULT_START)
+        gameMinutes = v.coerceIn(START_MIN, START_MAX)
+    }
+
+    fun startsAt(): String = format(gameMinutes)
+
+    fun format(minutes: Int): String {
+        val h = minutes / 60; val m = minutes % 60
+        return "${if (h % 12 == 0) 12 else h % 12}:${if (m < 10) "0$m" else "$m"} ${if (h < 12) "AM" else "PM"}"
+    }
 
     /** Wall clock (ms); tests swap it. */
     var clock: () -> Long = { System.currentTimeMillis() }
@@ -41,13 +57,14 @@ object PreGame {
         fun at(h: Int, m: Int, plusDays: Int = 0) = (day.clone() as Calendar).apply {
             add(Calendar.DAY_OF_YEAR, plusDays); set(Calendar.HOUR_OF_DAY, h); set(Calendar.MINUTE, m)
         }.timeInMillis
-        return Window(at(SHOW_HOUR, 0), at(GAME_HOUR, GAME_MINUTE), at(END_HOUR, 0, 1))
+        return Window(at(SHOW_HOUR, 0), at(gameMinutes / 60, gameMinutes % 60), at(END_HOUR, 0, 1))
     }
 
-    /** Friday evening heads-ups: minutes before the game (6:00, 6:30, 7:00 and 7:15 PM). */
-    val HEADS_UP_MIN = listOf(90, 60, 30, 15)
+    /** Friday evening heads-ups sit at fixed clock times (6:00, 6:30, 7:00 and 7:15 PM), whatever the start time; each says how long is left. */
+    val HEADS_UP_AT = listOf(18 * 60, 18 * 60 + 30, 19 * 60, 19 * 60 + 15)
 
     fun headsUp(minutes: Int): String = when (minutes) {
+        120 -> "Attention players. Poker starts in 2 hours."
         90 -> "Attention players. Poker starts in 90 minutes."
         60 -> "Attention players. Poker starts in one hour."
         else -> "Attention players. Poker starts in $minutes minutes."

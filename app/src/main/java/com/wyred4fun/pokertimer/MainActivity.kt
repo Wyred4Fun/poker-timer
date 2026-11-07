@@ -75,6 +75,7 @@ class MainActivity : Activity(), TimerEngine.Listener {
         override fun run() {
             engine.update(SystemClock.elapsedRealtime())
             fridayNight(SystemClock.elapsedRealtime())
+            Announcer.retryVoice()
             snapBackIfIdle()
             render()
             val now = SystemClock.elapsedRealtime()
@@ -113,6 +114,7 @@ class MainActivity : Activity(), TimerEngine.Listener {
         if (Prefs.theme(this) != themeShown) { recreate(); return }
         useChips = Prefs.chips(this)
         preGameOn = PreGame.enabled(this)
+        PreGame.loadStart(this)
         billboardMode = getSharedPreferences("poker_timer", MODE_PRIVATE).getBoolean("billboardMode", false)
         billboardOn = Billboard.enabled(this)
         resumed = true
@@ -351,13 +353,14 @@ class MainActivity : Activity(), TimerEngine.Listener {
 
     /**
      * Friday night by itself (Catalpa Club Poker Timer, with "Friday game auto-start" on):
-     * 7:30 PM the timer starts with nobody pressing anything, and Saturday 2:00 AM the night is reset so the billboard takes over.
+     * 8:00 PM the timer starts with nobody pressing anything, and Saturday 2:00 AM the night is reset so the billboard takes over.
      */
     private fun fridayNight(now: Long) {
         if (!BuildConfig.CLUB || now - fridayCheckedAt < 1000) return
         fridayCheckedAt = now
         val wall = PreGame.clock()
         val sp = getSharedPreferences("poker_timer", MODE_PRIVATE)
+        PreGame.loadStart(this)             // the start time may have just been changed in Setup
         // Saturday 2 AM: reset (the very first look just records where we are, so installing mid-game never wipes it)
         val on = PreGame.enabled(this)      // read fresh: the switch may have just been changed in Setup
         val w0 = PreGame.window(wall)
@@ -381,17 +384,18 @@ class MainActivity : Activity(), TimerEngine.Listener {
         // 6:00, 6:30, 7:00 and 7:15 PM: a chime and "Poker starts in ..." (only if the timer isn't running yet; an app opened late skips the ones that are over)
         if (on && !engine.running && wall >= w0.showFrom && wall < w0.gameAt) {
             val done = (sp.getString("announced", "") ?: "").let { v -> if (v.startsWith("${w0.gameAt}:")) v.substringAfter(':').split(',').filter { it.isNotEmpty() } else emptyList() }
-            for (min in PreGame.HEADS_UP_MIN) {
-                val at = w0.gameAt - min * 60_000L
-                if (wall in at until at + 2 * 60_000L && min.toString() !in done) {
-                    sp.edit().putString("announced", "${w0.gameAt}:" + (done + min.toString()).joinToString(",")).apply()
+            for (clockMin in PreGame.HEADS_UP_AT) {
+                val at = w0.showFrom + (clockMin - PreGame.SHOW_HOUR * 60) * 60_000L
+                val left = ((w0.gameAt - at) / 60_000L).toInt()
+                if (left >= 5 && wall in at until at + 2 * 60_000L && clockMin.toString() !in done) {
+                    sp.edit().putString("announced", "${w0.gameAt}:" + (done + clockMin.toString()).joinToString(",")).apply()
                     Announcer.chime()
-                    Announcer.say(PreGame.headsUp(min), 1200)
+                    Announcer.say(PreGame.headsUp(left), 1200)
                     break
                 }
             }
         }
-        // 7:30 PM Friday: start, once per Friday, unless someone already started the night
+        // 8:00 PM Friday: start, once per Friday, unless someone already started the night
         val w = w0
         if (on && wall >= w.gameAt && wall < w.endsAt && sp.getLong("autoStartedFor", 0L) < w.gameAt &&
             startedAt < w.showFrom && !engine.running) {
@@ -609,7 +613,7 @@ class MainActivity : Activity(), TimerEngine.Listener {
 
     /** "11:43 PM", or "23:43" if the box is set to a 24-hour clock. */
     /**
-     * Over the timer: the Friday countdown (Friday 5 PM until the game starts by itself at 7:30), else the club billboard
+     * Over the timer: the Friday countdown (Friday 5 PM until the game starts by itself at 8:00), else the club billboard
      * whenever poker isn't on. A remote press puts either aside for 90 seconds.
      */
     private fun renderPreGame(now: Long) {

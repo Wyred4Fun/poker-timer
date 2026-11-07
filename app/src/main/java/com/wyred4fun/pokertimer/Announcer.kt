@@ -37,28 +37,51 @@ object Announcer {
     fun init(ctx: Context) {
         if (app != null) return
         app = ctx.applicationContext
-        try {
-            tts = TextToSpeech(ctx.applicationContext) { status ->
-                if (status == TextToSpeech.SUCCESS) {
-                    tts?.let {
-                        val r = it.setLanguage(Locale.US)
-                        ttsReady = r != TextToSpeech.LANG_MISSING_DATA && r != TextToSpeech.LANG_NOT_SUPPORTED
-                        it.setSpeechRate(0.92f)
-                        it.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-                            override fun onStart(id: String?) {}
-                            override fun onError(id: String?) {}
-                            override fun onDone(id: String?) { prepared(id) }
-                        })
-                        prepare(DEMO_TEXT)
-                    }
-                }
-            }
-        } catch (e: Exception) {
-            tts = null
-        }
+        startVoice()
         useKnock(Prefs.knockSound(ctx))
         chimeTrack = makeTrack(chimePcm(), RATE)
     }
+
+    private var voiceTriedAt = 0L
+
+    /** Ask the box's speech engine to start. (Right after a boot it is often not up yet, so this can be repeated: see retryVoice.) */
+    private fun startVoice() {
+        val ctx = app ?: return
+        voiceTriedAt = android.os.SystemClock.elapsedRealtime()
+        ttsReady = false
+        try { tts?.shutdown() } catch (e: Exception) {}
+        tts = null
+        try {
+            var mine: TextToSpeech? = null
+            mine = TextToSpeech(ctx) { status ->
+                val t = mine
+                if (t == null || t !== tts) return@TextToSpeech          // an older attempt that was replaced
+                if (status == TextToSpeech.SUCCESS) {
+                    val r = t.setLanguage(Locale.US)
+                    ttsReady = r != TextToSpeech.LANG_MISSING_DATA && r != TextToSpeech.LANG_NOT_SUPPORTED
+                    t.setSpeechRate(0.92f)
+                    t.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+                        override fun onStart(id: String?) {}
+                        override fun onError(id: String?) {}
+                        override fun onDone(id: String?) { prepared(id) }
+                    })
+                    if (ttsReady) prepare(DEMO_TEXT)
+                }
+            }
+            tts = mine
+        } catch (e: Exception) {
+            tts = null
+        }
+    }
+
+    /** Called every few seconds by the timer screen: if the voice still is not ready 20 seconds after the last try, try again. */
+    fun retryVoice() {
+        if (app == null || ttsReady) return
+        if (android.os.SystemClock.elapsedRealtime() - voiceTriedAt >= 20_000L) startVoice()
+    }
+
+    /** For Setup: is the spoken voice working? */
+    fun voiceReady() = ttsReady
 
     fun soundsOn() = app?.let { Prefs.sounds(it) } ?: true
     private fun voiceMode() = app?.let { Prefs.voiceMode(it) } ?: Prefs.VOICE_BLINDS
