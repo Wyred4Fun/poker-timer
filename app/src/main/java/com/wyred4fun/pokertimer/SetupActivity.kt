@@ -768,6 +768,7 @@ class SetupActivity : Activity() {
             }, 5)
         }
         refreshStartup()
+        gap(switchRow("Keep going after the last level", "carryOn") { Prefs.carryOn(this) }, 5)
         gap(switchRow("Blinds in chips", "chips") { Prefs.chips(this) }, 5)
         gap(switchRow("Test mode (75 s levels)", "testMode") { Prefs.testMode(this) }, 5)
 

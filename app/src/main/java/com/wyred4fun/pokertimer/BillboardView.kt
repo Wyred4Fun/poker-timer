@@ -198,9 +198,16 @@ object Billboard {
         ctx.getSharedPreferences("poker_timer", Context.MODE_PRIVATE).getBoolean("billboard", true)
 
     /** The billboard shows when the poker night isn't under way. */
-    fun wanted(wall: Long, startedAt: Long, running: Boolean, finished: Boolean): Boolean {
+    const val HOLD_AFTER_FINAL_MS = 60 * 60_000L
+
+    /**
+     * The final level stays on the screen for an hour after it ends (players are still at the table);
+     * [finishedAt] is when it ended, 0 if unknown (then the billboard takes over at once).
+     */
+    fun wanted(wall: Long, startedAt: Long, running: Boolean, finished: Boolean, finishedAt: Long = 0L): Boolean {
         if (running) return false
-        if (startedAt == 0L || finished) return true
+        if (finished) return finishedAt <= 0L || wall < finishedAt || wall - finishedAt >= HOLD_AFTER_FINAL_MS
+        if (startedAt == 0L) return true
         return wall - startedAt > 10 * 3600_000L   // a night started long ago and left paused
     }
 }

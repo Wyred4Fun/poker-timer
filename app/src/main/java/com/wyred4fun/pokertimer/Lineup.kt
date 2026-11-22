@@ -105,6 +105,8 @@ object Prefs {
     const val VOICE_ALL = 2
     fun openAtStartup(ctx: Context) = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean("openAtStartup", false)
     fun chips(ctx: Context) = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean("chips", true)
+    /** Keep going after the last level with rounds of its own making. Off: the night ends on the last row. */
+    fun carryOn(ctx: Context) = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean("carryOn", false)
     fun testMode(ctx: Context) = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean("testMode", false)
     fun knockSound(ctx: Context): String =
         ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString("knockSound", Sounds.DEFAULT) ?: Sounds.DEFAULT

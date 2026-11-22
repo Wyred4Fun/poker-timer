@@ -28,7 +28,7 @@ class TimerEngine(levels: List<Level>, private val listener: Listener) {
      * Keep going after the last level: another round of the same length, blinds stepping up
      * the same way they did last time (e.g. 8-16, 9-18, then 10-20, 11-22 ...).
      */
-    var carryOn = true
+    var carryOn = true     // the app sets this from Setup ("Keep going after the last level", off unless switched on)
     var testMode = false
     /** How many notification sounds lead into the new blinds (one per second: 5, 4, 3, 2, 1). */
     var knocks = COUNTDOWN
@@ -37,6 +37,9 @@ class TimerEngine(levels: List<Level>, private val listener: Listener) {
     var running = false
         private set
     var finished = false
+        private set
+    /** When the final level reached 0:00 (steady clock), so the screen can say how long ago the night ended. */
+    var finishedEndAt = 0L
         private set
 
     private var remainingMs: Long = durationMs(0)
@@ -215,6 +218,7 @@ class TimerEngine(levels: List<Level>, private val listener: Listener) {
             } else {
                 running = false
                 finished = true
+                finishedEndAt = endAt
                 remainingMs = 0
                 listener.onFinished(quiet)
                 return

@@ -33,6 +33,8 @@ class MainActivity : Activity(), TimerEngine.Listener {
     private lateinit var startedText: TextView
     /** Wall-clock time the night's first Start was pressed (0 = not started yet). */
     private var startedAt = 0L
+    /** Wall-clock time the final level ended (0 = not finished); the final screen stays up for an hour from here. */
+    private var finishedWall = 0L
     private lateinit var centerLabel: TextView
     private lateinit var bigText: TextView
     /** Under BREAK: the blinds when play starts again. */
@@ -98,6 +100,7 @@ class MainActivity : Activity(), TimerEngine.Listener {
         engine = TimerEngine(Lineup.load(this), this)
         live = engine
         engine.testMode = Prefs.testMode(this)
+        engine.carryOn = Prefs.carryOn(this)
         restoreState()
         PreGame.schedule(this)
         setContentView(build())
@@ -128,6 +131,7 @@ class MainActivity : Activity(), TimerEngine.Listener {
             engine.testMode = test
             engine.resetLevel(now)
         }
+        engine.carryOn = Prefs.carryOn(this)
         engine.setLevels(Lineup.load(this), now)
         handler.removeCallbacks(ticker)
         handler.post(ticker)
@@ -249,6 +253,8 @@ class MainActivity : Activity(), TimerEngine.Listener {
     }
 
     override fun onFinished(quiet: Boolean) {
+        // when it really ended (if the app was away, the engine caught up and knows the moment)
+        finishedWall = System.currentTimeMillis() - (SystemClock.elapsedRealtime() - engine.finishedEndAt).coerceAtLeast(0L)
         saveState()
         if (!quiet) Announcer.say("Time is up on the final level.", 350)
     }
@@ -473,6 +479,7 @@ class MainActivity : Activity(), TimerEngine.Listener {
             .putLong("st_msLeft", engine.msLeft(now))
             .putBoolean("st_running", engine.running)
             .putBoolean("st_finished", engine.finished)
+            .putLong("st_finishedAt", if (engine.finished) finishedWall else 0L)
             .putLong("st_wall", System.currentTimeMillis())
             .putLong("st_started", startedAt)
             .apply()
@@ -481,6 +488,7 @@ class MainActivity : Activity(), TimerEngine.Listener {
     private fun restoreState() {
         val p = getSharedPreferences("poker_timer", Context.MODE_PRIVATE)
         startedAt = p.getLong("st_started", 0L)
+        finishedWall = p.getLong("st_finishedAt", 0L)
         if (!p.contains("st_idx")) return
         val since = System.currentTimeMillis() - p.getLong("st_wall", System.currentTimeMillis())
         engine.restore(
@@ -491,6 +499,8 @@ class MainActivity : Activity(), TimerEngine.Listener {
             p.getBoolean("st_finished", false),
             SystemClock.elapsedRealtime()
         )
+        // a night saved as finished by an older version: the last save is the best guess for when it ended
+        if (engine.finished && finishedWall == 0L) finishedWall = p.getLong("st_wall", 0L)
     }
 
     // ---------- drawing ----------
@@ -622,7 +632,7 @@ class MainActivity : Activity(), TimerEngine.Listener {
         if (billboardMode && engine.running) setBillboardMode(false)   // poker is on: back to the normal rules
         val aside = now < preGamePeekUntil || !overlaysAllowed()
         // the slides want the screen (poker isn't on); the countdown takes the last 3 minutes of every quarter hour
-        val slidesWanted = !aside && billboardOn && (billboardMode || Billboard.wanted(wall, startedAt, engine.running, engine.finished)) &&
+        val slidesWanted = !aside && billboardOn && (billboardMode || Billboard.wanted(wall, startedAt, engine.running, engine.finished, finishedWall)) &&
             !engine.running && billboardHasSlides(now, wall)
         val rotate = slidesWanted && preGameOn && BuildConfig.CLUB && PreGame.rotationSlot(wall)
         val show = !aside && !engine.running &&
